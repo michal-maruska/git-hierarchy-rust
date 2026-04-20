@@ -26,6 +26,7 @@ use ::git_hierarchy::graph::discover_pet::find_hierarchy;
 use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load,
                                      segment_fmt, sum_fmt, plain_ref_fmt};
 
+use ::git_hierarchy::rebase::check_sum;
 #[allow(unused)]
 use tracing::{debug, info};
 
@@ -45,7 +46,7 @@ fn list_segment_commits<'repo>(repository: &'repo Repository, segment: &Segment<
 fn describe_node<'repo>(
     repository: &'repo Repository,
     node: &GitHierarchy<'repo>,
-    _object_map: &HashMap<String, GitHierarchy<'repo>>,
+    object_map: &HashMap<String, GitHierarchy<'repo>>,
     // _remapped : HashMap<String, String>,
     brief: bool,
 ) {
@@ -83,7 +84,11 @@ fn describe_node<'repo>(
         GitHierarchy::Sum(sum) => {
             let summands = sum.summands(repository);
 
-            println!("sum {} of: ", sum_fmt(sum.name()));
+            println!("sum {}", sum_fmt(sum.name()));
+            if let Err(_) = check_sum(repository, sum, object_map) {
+                println!("{}", "needs update".bright_red().on_white());
+            }
+
             if !brief {
                 for s in &summands {
                     println!("  {}", s.name().unwrap());
