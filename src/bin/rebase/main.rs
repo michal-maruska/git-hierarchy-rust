@@ -429,7 +429,7 @@ struct Cli {
     #[arg(long, short = 'g')]
     directory: Option<PathBuf>,
 
-    #[arg(short='f', long="fetch" )]
+    #[arg(short='f', long="no-fetch" )]
     no_fetch: bool,
 
     #[arg(short, long, action = clap::ArgAction::Count)]
