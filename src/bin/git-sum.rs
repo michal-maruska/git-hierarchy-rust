@@ -53,8 +53,15 @@ enum Commands {
 
     #[command(name="define", version, about, long_about = None,long_flag("define"),short_flag('D'))]
     Define(DefineArgs),
+
+    #[command(name="show", version, about, long_about = None,long_flag("show"),short_flag('s'))]
+    Show(ShowArgs),
 }
 
+#[derive(clap::Args)]
+struct ShowArgs {
+    name: String,
+}
 
 #[derive(clap::Args)]
 // why do I have this, and not #[arg()]?
@@ -172,13 +179,14 @@ fn main()
             Commands::Delete(args) => {
                 delete_sum(&repository, &args);
             }
+            Commands::Show(args) => {
+                describe_sum(&repository, &args);
+            }
         }
     } else if let Some(args) = clip.define_or_show_args {
         if args.len() == 1 {
-            let gh = git_hierarchy::git_hierarchy::load(&repository, &args[0]).unwrap();
-            if let GitHierarchy::Sum(sum) = gh {
-                describe_sum(&repository, &sum);
-            }
+            let args = ShowArgs{name: args[0].clone()};
+            describe_sum(&repository, &args);
         } else {
             define_sum(&repository,
                        &args[0],
@@ -199,16 +207,21 @@ fn list_sums(repository: &Repository) {
     }
 }
 
-fn describe_sum<'repo>(repository: &'repo Repository, sum: &git_hierarchy::git_hierarchy::Sum<'repo>) {
-    println!("sum {}", sum_fmt(sum.name()));
-    let summands = sum.summands(repository);
-    for s in &summands {
-        println!("\t {}", s.name().unwrap());
-    }
-    // report if clean or dirty.
+fn describe_sum(repository: &Repository, args: &ShowArgs) {
+    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+    if let GitHierarchy::Sum(sum) = gh {
+        //        sum: &git_hierarchy::git_hierarchy::Sum<'repo>
 
-    // prune non-existings summands ??? why?
-    // fn show_prune_definition(){unimplemented!()}
+        println!("sum {}", sum_fmt(sum.name()));
+        let summands = sum.summands(repository);
+        for s in &summands {
+            println!("\t {}", s.name().unwrap());
+        }
+        // report if clean or dirty.
+
+        // prune non-existings summands ??? why?
+        // fn show_prune_definition(){unimplemented!()}
+    }
 }
 
 /*
