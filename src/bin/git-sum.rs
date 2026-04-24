@@ -196,6 +196,7 @@ fn main()
             }
 
             Commands::Add(args) => {
+                add_to_sum(&repository, &args);
                 // load the definition
                 // allocate new numbers
                 // create the symbolic refs
@@ -242,10 +243,22 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) {
     }
 }
 
+fn add_to_sum(repository: &Repository, args: &AddArgs) {
+    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+    if let GitHierarchy::Sum(mut sum) = gh {
+        let sumrefs : Vec<Reference>
+            = args.summands.iter().map(|x| {
+                repository.resolve_reference_from_short_name(x.as_ref()).unwrap()
+            }).collect();
+
+        sum.add_summands(repository, sumrefs.iter(), None).expect("failed to add summands");
+    }
+}
+
+
 /*
 fn git_sum_branches() {unimplemented!()}
 
-fn add_to_sum(){unimplemented!()}
 
 fn remove_from_sum() {unimplemented!()}
 */
