@@ -56,11 +56,23 @@ enum Commands {
 
     #[command(name="show", version, about, long_about = None,long_flag("show"),short_flag('s'))]
     Show(ShowArgs),
+
+    #[command(name="add", version, about, long_about = None,long_flag("add"),short_flag('a'))]
+    Add(AddArgs),
+
+    // #[command(name="remove", version, about, long_about = None,long_flag("remove"),short_flag('r'))]
+    // Remove(RemoveArgs),
 }
 
 #[derive(clap::Args)]
 struct ShowArgs {
     name: String,
+}
+
+#[derive(clap::Args)]
+struct AddArgs {
+    name: String,
+    summands: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -181,6 +193,12 @@ fn main()
             }
             Commands::Show(args) => {
                 describe_sum(&repository, &args);
+            }
+
+            Commands::Add(args) => {
+                // load the definition
+                // allocate new numbers
+                // create the symbolic refs
             }
         }
     } else if let Some(args) = clip.define_or_show_args {
