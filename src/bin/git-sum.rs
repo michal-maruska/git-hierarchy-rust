@@ -87,7 +87,7 @@ struct DefineArgs
     components: Vec<String>,
 }
 
-/// listing all segments
+/// listing all sums
 #[derive(clap::Args)]
 struct ListArgs {
     #[arg(long, short,group = "format")]
