@@ -15,30 +15,36 @@ enum Collected<V> {
 
 impl<V> Try for Collected<V> {
     type Output   = V;
-    type Residual = Collected<V>;
+    type Residual = V;        // ← just V, the partial accumulator
 
-    fn from_output(v: V) -> Self          { Collected::Ok(v) }
+    fn from_output(v: V) -> Self { Collected::Ok(v) }
 
     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             Collected::Ok(v)   => ControlFlow::Continue(v),
-            Collected::Fail(v) => ControlFlow::Break(Collected::Fail(v)),
+            Collected::Fail(v) => ControlFlow::Break(v),  // ← break with V directly
         }
     }
 }
 
-impl<V> FromResidual for Collected<V> {
-    fn from_residual(r: Collected<V>) -> Self { r }
+impl<V> FromResidual<V> for Collected<V> {
+    fn from_residual(v: V) -> Self { Collected::Fail(v) }  // ← clean and obvious
 }
 
-// ── try_collect built entirely on try_fold ────────────────────────────────────
+// ── try_collect: generic over any T: Try ─────────────────────────────────────
+//
+// We call branch() ourselves so acc is never moved before we decide
+// what to do with it.
 
-fn try_collect<A, E>(
-    iter: impl Iterator<Item = Result<A, E>>, // could be Try, right?
-) -> Collected<Vec<A>> {
-    iter.try_fold(Vec::new(), |mut acc, item| match item {
-        Ok(a)  => { acc.push(a); Collected::Ok(acc) }
-        Err(_) =>                Collected::Fail(acc),  // short-circuit
+fn try_collect<T>(iter: impl Iterator<Item = T>) -> Collected<Vec<T::Output>>
+where
+    T: Try,
+{
+    iter.try_fold(Vec::new(), |mut acc, item| {
+        match item.branch() {
+            ControlFlow::Continue(v) => { acc.push(v); Collected::Ok(acc) }
+            ControlFlow::Break(_)    =>                Collected::Fail(acc),
+        }
     })
 }
 
