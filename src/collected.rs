@@ -1,6 +1,5 @@
-#![feature(try_trait_v2)]
-
 use std::ops::{ControlFlow, FromResidual, Try};
+use core::convert::Infallible;
 
 // I want a new method on Iterator, which ... returning a Try type,
 // I will collect up to the first Residual/Failure all the Outputs.
@@ -8,27 +7,32 @@ use std::ops::{ControlFlow, FromResidual, Try};
 
 // ── The control-flow enum ─────────────────────────────────────────────────────
 #[derive(Debug)]
-enum Collected<V> {
+pub enum Collected<V> {
     Ok(V),
     Fail(V),   // V is the partial accumulator at the point of failure
 }
 
 impl<V> Try for Collected<V> {
     type Output   = V;
-    type Residual = V;        // ← just V, the partial accumulator
+    type Residual = Result<Infallible,V>;
 
     fn from_output(v: V) -> Self { Collected::Ok(v) }
 
     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             Collected::Ok(v)   => ControlFlow::Continue(v),
-            Collected::Fail(v) => ControlFlow::Break(v),  // ← break with V directly
+            Collected::Fail(v) => ControlFlow::Break(Err(v)),  // ← Err(v) wraps V
         }
     }
 }
 
-impl<V> FromResidual<V> for Collected<V> {
-    fn from_residual(v: V) -> Self { Collected::Fail(v) }  // ← clean and obvious
+impl<V> FromResidual<Result<Infallible, V>> for Collected<V> {
+    fn from_residual(r: Result<Infallible, V>) -> Self {
+        match r {
+            Err(v) => Collected::Fail(v),
+            Ok(i)  => match i {},  // Infallible: this arm is unreachable
+        }
+    }
 }
 
 // ── try_collect: generic over any T: Try ─────────────────────────────────────
@@ -36,7 +40,7 @@ impl<V> FromResidual<V> for Collected<V> {
 // We call branch() ourselves so acc is never moved before we decide
 // what to do with it.
 
-fn try_collect<T>(iter: impl Iterator<Item = T>) -> Collected<Vec<T::Output>>
+pub fn try_collect<T>(mut iter: impl Iterator<Item = T>) -> Collected<Vec<T::Output>>
 where
     T: Try,
 {
