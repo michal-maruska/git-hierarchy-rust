@@ -129,7 +129,7 @@ fn commit_cherry_picked<'repo>(repository: &'repo Repository,
         eprintln!("{}",Colorize::red("resolve them, and either commit or stage them"));
 
         // next time resume from this, `exclusive'.
-        record_processed_commit(repository, original.id(), false).unwrap();
+        record_processed_commit(repository, original.id(), true).unwrap();
         exit(1);
     }
 
