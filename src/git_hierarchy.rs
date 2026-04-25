@@ -314,8 +314,6 @@ impl<'repo> Sum<'repo> {
     pub fn new(
         reference: Reference<'repo>,
         summands: Vec<Reference<'repo>>
-        // base: Reference<'repo>,
-        // start: Reference<'repo>,
     ) -> Sum<'repo> {
         Sum::<'repo> {
             name: branch_name(&reference).to_owned(),
@@ -389,7 +387,6 @@ impl<'repo> Sum<'repo> {
     // todo: iterator?
     pub fn summands(&self, repository: &'repo Repository) -> Vec<Reference<'repo>> {
         debug!("resolving summands for {:?}", self.name());
-
         // = Vec::with_capacity(self.summands.len());
         self.summands.iter().map(
             |summand| {
@@ -399,7 +396,6 @@ impl<'repo> Sum<'repo> {
 
                 debug!("{:?} -> {:?}", summand.name().unwrap(),
                        symbolic_base.name().unwrap());
-
                 symbolic_base
             }).collect()
     }
