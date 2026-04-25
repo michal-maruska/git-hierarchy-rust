@@ -354,9 +354,37 @@ impl<'repo> Sum<'repo> {
                      summands))
     }
 
+    pub fn add_summands<'a>(
+        &mut self,
+        repository: &'repo Repository,
+        // todo: IntoIter
+        components: impl Iterator<Item = &'a Reference<'repo>>,
+        // I need mut to take ownership of items.
+        // Oid
+        _hint: Option<Commit<'repo>>
+    ) -> Result<(), Error>
+    where 'repo : 'a {
+
+        let summands = &self.summands;
+        // find:
+        let mut max : usize = 0;
+        for i in summands {
+            eprintln!("summand {}", i.name().unwrap());
+            let n = i.name().expect("must have name").strip_prefix(SUM_SUMMAND_PATTERN).expect("must have SUM prefix")
+                .strip_prefix(&self.name).expect("owned by the sum")
+                .strip_prefix("/").expect("/");
+            let index = n.parse::<usize>().expect("should be numeric");
+            // eprintln!("summand {}", index);
+            if max < index {
+                max = index;
             }
         }
+        let mut new_summands = create_summand_refs(repository, &self.name, max, components)?;
+
+        self.summands.append(&mut new_summands);
+        Ok(())
     }
+
 
     // todo: iterator?
     pub fn summands(&self, repository: &'repo Repository) -> Vec<Reference<'repo>> {
