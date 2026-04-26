@@ -448,39 +448,44 @@ struct Cli {
 
 fn main() {
     let mut cli = Cli::parse();
-    // cli can override the Env variable.
     init_tracing(cli.verbose);
 
     let repository = open_repository(cli.directory.as_ref()).expect("should find the Git directory");
-
 
     if cli.cont {
         // old: rebase_continue_git1(repository, &segment_name)
         rebase_segment_continue(&repository).unwrap();
     } else {
+        // fixme: what if SUM?
         if let Some((segment_name, _)) = segment_to_continue(&repository) {
             eprintln!("{} {}",Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
             exit(1);
         }
     }
 
-    let root = cli.root_reference // if in detached HEAD -- will panic.
-        .unwrap_or_else(|| repository.head().unwrap().name().unwrap().to_owned());
+    let root = cli.root_reference
+        .unwrap_or_else(|| repository.head().unwrap()
+                        // if in detached HEAD -- will panic:
+                        .name().unwrap().to_owned());
 
-    let root = GitHierarchy::Name(root); // not load?
+    let root = GitHierarchy::Name(root); // todo: load?
 
     debug!("root is {}", root.node_identity());
 
     // todo: I must rewrite ignore to full ref names!
     if !cli.skip.is_empty() {
-        // rewrite it:
+        // canonicalize the user-input:
         for e in cli.skip.iter_mut() {
             // rewrite String:
-            e.replace_range(..e.len(), repository.resolve_reference_from_short_name(e).unwrap().name().unwrap());
+            e.replace_range(..e.len(),
+                            repository.resolve_reference_from_short_name(e).unwrap().name().unwrap());
         }
     }
 
-    if let Err(e) = rebase_tree(&repository, root.node_identity().to_owned(), !cli.no_fetch,
+    if let Err(e) = rebase_tree(&repository,
+                                // why?
+                                root.node_identity().to_owned(),
+                                !cli.no_fetch,
                                 &cli.ignore,
                                 &cli.skip)
     {
