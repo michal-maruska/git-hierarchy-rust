@@ -85,13 +85,13 @@ fn remerge_sum<'repo>(
 ) -> Result<RebaseResult, RebaseError> {
     let summands = sum.summands(repository);
 
-/* assumption:
+    /* assumption:
     sum has its summands   base/1 ... base/N
     these might resolve to References. -- how is that different from Branch?
 
     During the rebasing we change ... Branches (References), and update them in the `object_map'
     so we .... prefer to look up there.
-*/
+     */
 
     // find the representation which we already have and keep updating.
     let graphed_summands: Vec<&GitHierarchy<'_>> = summands
@@ -100,7 +100,7 @@ fn remerge_sum<'repo>(
             |s| {
                 let gh = object_map.get(s.name().unwrap()).unwrap();
                 debug!(
-                    "convert {:?} to {:?}",
+                    "resolve {:?} to {:?}",
                     s.name().unwrap(),
                     gh.node_identity()
                 );
@@ -115,16 +115,16 @@ fn remerge_sum<'repo>(
         debug!("  {}", c);
     }
 
-    let (_u,v) = iterator_symmetric_difference(
+    let (orhan_summands, extra_parents) = iterator_symmetric_difference(
         graphed_summands.iter().map(|gh| {
-            debug!("mapping {:?} to {:?}", gh.node_identity(),
+            debug!("{:?} is commit {:?}", gh.node_identity(),
                    gh.commit().unwrap().id());
             gh.commit().unwrap().id()
         }),
         parent_commits);
 
 
-    if v.is_empty() {
+    if orhan_summands.is_empty() && extra_parents.is_empty() {
         info!("sum is update: summands & parent commits align");
     } else {
         info!("so the sum is not up-to-date!");
