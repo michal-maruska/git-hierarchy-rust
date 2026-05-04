@@ -405,7 +405,7 @@ pub fn segment_to_continue(repository: &Repository) -> Option<(String,Option<(St
 pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, RebaseError> {
     // todo: this might be the input:
     let (segment_name, rest) = segment_to_continue(repository).unwrap();
-    let mut skip=0;
+    let skip;
 
     if let GitHierarchy::Segment(segment) = load(repository, &segment_name).unwrap() {
         let commit_id =
