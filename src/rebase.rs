@@ -392,7 +392,7 @@ pub fn segment_to_continue(repository: &Repository) -> Option<(String,Option<(St
         None =>
             return Some((segment_name, None)),
         Some(oid) => {
-            let skip : usize = lines.next_back().unwrap().parse().unwrap();
+            let skip : usize = lines.next_back().unwrap().parse().expect("should be a number");
             debug!("from file: continue on {}, after {:?}", segment_name, oid);
             Some((segment_name, Some((oid.to_owned(), skip))))
         }
