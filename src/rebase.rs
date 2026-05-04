@@ -136,6 +136,7 @@ fn commit_cherry_picked<'repo>(repository: &'repo Repository,
     let statusses = staged_files(repository).unwrap();
     if statusses.is_empty() {
         eprintln!("SORRY nothing staged, empty -- skip?");
+        record_processed_commit(repository, original.id(), true).unwrap();
         // so we have .git/CHERRY_PICK_HEAD ?
         exit(1);
     } else {
