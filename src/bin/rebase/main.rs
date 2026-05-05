@@ -125,7 +125,7 @@ fn remerge_sum<'repo>(
 
 
     if orhan_summands.is_empty() && extra_parents.is_empty() {
-        info!("sum is update: summands & parent commits align");
+        info!("sum is up2date: summands & parent commits align");
     } else {
         info!("so the sum is not up-to-date!");
 
@@ -376,6 +376,8 @@ fn rebase_tree(repository: &Repository,
                ignore: &[String],
                skip: &[String]
 ) -> Result<(), RebaseError> {
+    debug!("find the hierarchy from {}", &root);
+    tracing::debug_span!("hierarchy");
     let hierarchy_graph = find_hierarchy(repository, root);
 
     // verify we can do it:
@@ -383,7 +385,7 @@ fn rebase_tree(repository: &Repository,
     for v in &hierarchy_graph.discovery_order {
         let name = hierarchy_graph.labeled_objects.get(v).unwrap().node_identity();
         debug!(
-            "{:?} {:?} {:?}",
+            "{:?} -> ({:?} / {:?})",
             v,
             name,
             hierarchy_graph.graph
@@ -399,6 +401,7 @@ fn rebase_tree(repository: &Repository,
             // with context .expect("nodes should be in correct state");
     }
 
+    debug!("Rebasing");
     for v in &hierarchy_graph.discovery_order {
         let name = hierarchy_graph.labeled_objects.get(v).unwrap().node_identity();
 
@@ -408,7 +411,7 @@ fn rebase_tree(repository: &Repository,
         }
 
         debug!(
-            "{:?} {:?} {:?}",
+            "rebase node {:?} => {:?} {:?}",
             v,
             hierarchy_graph.labeled_objects.get(v).unwrap().node_identity(),
             hierarchy_graph.graph
