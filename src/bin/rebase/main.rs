@@ -403,7 +403,8 @@ fn rebase_tree(repository: &Repository,
 
     debug!("Rebasing");
     for v in &hierarchy_graph.discovery_order {
-        let name = hierarchy_graph.labeled_objects.get(v).unwrap().node_identity();
+        let vertex = hierarchy_graph.labeled_objects.get(v).unwrap();
+        let name = vertex.node_identity();
 
         if skip.iter().any(|x| x == name) {
             info!("Skipping: {name}");
@@ -413,13 +414,11 @@ fn rebase_tree(repository: &Repository,
         debug!(
             "rebase node {:?} => {:?} {:?}",
             v,
-            hierarchy_graph.labeled_objects.get(v).unwrap().node_identity(),
+            name,
             hierarchy_graph.graph
                 .node_weight(*hierarchy_graph.labeled_nodes.get(v).unwrap())
                 .unwrap()
         );
-        let vertex = hierarchy_graph.labeled_objects.get(v).unwrap();
-
         rebase_node(repository, vertex, fetch, &hierarchy_graph.labeled_objects)?;
     }
     debug!("done");
