@@ -314,7 +314,7 @@ fn current_branch(repository: &'_ Repository) -> Option<String> {
     }
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     init_tracing(cli.verbose);
@@ -329,14 +329,13 @@ fn main() {
         }
     }
 
-    let root = cli
-        .root_reference
-        .unwrap_or_else(|| {
-            let head = current_branch(&repository).expect("no current branch chosen");
+    let root = match cli.root_reference {
+        Some(r) => r,
+        None => {
+            let head = current_branch(&repository).ok_or_else(|| anyhow::anyhow!("no current branch chosen"))?;
             info!("Start from the HEAD = {}", head);
-
             head
-        });
+        }};
 
     info!("Start from the HEAD = {}", &root);
 
@@ -386,4 +385,5 @@ fn main() {
                   |repository, node, _object_map|
                   describe_node(repository, node, _object_map, cli.short));
     }
+    Ok(())
 }
