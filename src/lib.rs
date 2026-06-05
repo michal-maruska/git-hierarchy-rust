@@ -1,4 +1,5 @@
 #![feature(try_trait_v2)]
+#![feature(iter_next_chunk)]
 // #![feature(iterator_try_collect)]
 
 pub mod base;

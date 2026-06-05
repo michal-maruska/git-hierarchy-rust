@@ -5,6 +5,7 @@ use crate::utils::concatenate;
 use git2::{Branch, Commit, Oid,
            Error,
            Reference, Repository, build::CheckoutBuilder,
+           Remote,
            Sort,
            StatusShow,StatusOptions, Statuses,};
 #[allow(unused)]
@@ -134,3 +135,19 @@ pub fn open_repository(directory_option: Option<&PathBuf>) -> Result<Repository,
         Repository::open_from_env()
     }
 }
+
+pub fn upstream_of<'repo>(repository: &'repo Repository, branch: &Branch<'repo>) -> Option<(Remote<'repo>, Branch<'repo>, String)>
+{
+    let upstream = branch.upstream().unwrap();
+
+    let upstream_name = upstream.name().unwrap().unwrap();
+    let [rem, branch_name]= upstream_name.split('/').take(2).next_chunk().unwrap();
+
+    let remote = repository.find_remote(rem).ok()?;
+    // we have to drop branch_name, before ....returning .... upstream ... because it's moving out.
+    let b = branch_name.to_owned();
+    return Some((remote, upstream,
+                 // br.to_owned()
+                 b));
+}
+
