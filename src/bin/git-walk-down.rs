@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use git_hierarchy::utils::{init_tracing,concatenate};
-use git_hierarchy::base::{open_repository};
+use git_hierarchy::base::{open_repository, upstream_of, to_branch};
 /*
  note: ambiguous because of a conflict between a name from a glob
        import and an outer scope during import or macro resolution
@@ -58,7 +58,18 @@ fn describe_node<'repo>(
             panic!();
         }
         GitHierarchy::Reference(r) => {
-            println!("a ref {}", plain_ref_fmt(r.name().unwrap()));
+            // say the upstream:
+            if r.is_branch() { // and we know it's not Segment/Sum, right?
+                let branch = to_branch(repository, r);
+
+                if let Some((_remote, _branch , name)) = upstream_of(repository, &branch) {
+                    println!("a ref {} => {} {}", plain_ref_fmt(r.name().unwrap()),
+                             _remote.name().unwrap(),
+                             name);
+                }
+            } else {
+                // tag?
+            }
         }
         GitHierarchy::Segment(segment) => {
             let base = segment.base(repository);
