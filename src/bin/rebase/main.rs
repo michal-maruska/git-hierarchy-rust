@@ -1,5 +1,4 @@
 #![deny(elided_lifetimes_in_paths)]
-#![feature(iter_next_chunk)]
 // walk the hierarchy
 // - assemble list of segments/sums.
 // - graph, toposort
@@ -18,10 +17,9 @@ use git2::{Branch, BranchType, Error, Commit, Reference, ReferenceFormat, Reposi
 #[allow(unused_imports)]
 use tracing::{span, Level, debug, info, warn,error};
 
-use ::git_hierarchy::base::{checkout_new_head_at, git_same_ref, open_repository};
+use ::git_hierarchy::base::{checkout_new_head_at, git_same_ref, open_repository, upstream_of,to_branch};
 use ::git_hierarchy::execute::git_run;
-use ::git_hierarchy::utils::{
-    extract_name, iterator_symmetric_difference, init_tracing,
+use ::git_hierarchy::utils::{iterator_symmetric_difference, init_tracing,
 };
 use ::git_hierarchy::rebase::{check_segment, check_sum,
                               rebase_segment,rebase_segment_continue,
@@ -279,41 +277,38 @@ fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Resu
         // implicit permission -- that it's just following a remote branch.
         let name = Reference::normalize_name(reference.name().unwrap(), ReferenceFormat::NORMAL).unwrap();
 
-        // let b = Branch::wrap(*reference); // cannot move out of `*reference` which is behind a mutable reference
         info!("fetch local {name}");
         // why redo this? see above ^^
-        let mut branch = repository
-            .find_branch(extract_name(&name), BranchType::Local)
-            .unwrap();
 
-        let upstream = branch.upstream().unwrap();
-        let upstream_name = upstream.name().unwrap().unwrap();
+        let mut branch = to_branch(repository, reference);
+        if let Some((mut remote, remote_branch, remote_branch_name)) = upstream_of(repository, &branch) {
 
-        if git_same_ref(repository, reference, upstream.get()) {
-            // we might be behind?
-            debug!("in sync, so let's fetch & update");
-        } else {
-            // Check if still in sync, to not lose local changes.
-            panic!("{} not in sync with upstream {}; should not update.", name, upstream_name);
-            // or merge/rebase.
+            if git_same_ref(repository, reference, branch.get()) {
+                // we might be behind?
+                debug!("in sync, so let's fetch & update");
+            } else {
+                // Check if still in sync, to not lose local changes.
+                panic!("{} not in sync with upstream {}; should not update.", name, branch.name().unwrap().unwrap());
+                // or merge/rebase.
+            }
+
+            info!("fetch {} {} ....", remote.name().unwrap(), remote_branch_name);
+            if remote.fetch(&[remote_branch_name], None, None).is_ok() {
+                let oid = branch
+                    .upstream()
+                    .unwrap()
+                    .get()
+                    .target()
+                    .expect("upstream disappeared");
+                // wtf?
+                branch
+                    .get_mut()
+                    .set_target(oid, "fetch & fast-forward")
+                    .expect("fetch/sync failed");
+            }
         }
-        let [rem, br] = upstream_name.split('/').take(2).next_chunk().unwrap();
-
-        let mut remote = repository.find_remote(rem)?;
-
-        info!("fetch {} {} ....", rem, br);
-        if remote.fetch(&[br], None, None).is_ok() {
-            let oid = branch
-                .upstream()
-                .unwrap()
-                .get()
-                .target()
-                .expect("upstream disappeared");
-            branch
-                .get_mut()
-                .set_target(oid, "fetch & fast-forward")
-                .expect("fetch/sync failed");
-        }
+    } else {
+        // fixme!
     }
     Ok(())
 }
