@@ -1,11 +1,12 @@
 #![allow(static_mut_refs)]
 #![deny(elided_lifetimes_in_paths)]
 
-use crate::utils::concatenate;
-use git2::{Branch, Commit, Oid,
+use crate::utils::{concatenate,extract_name};
+use git2::{Branch, BranchType, Commit, Oid,
            Error,
            Reference, Repository, build::CheckoutBuilder,
            Remote,
+           ReferenceFormat,
            Sort,
            StatusShow,StatusOptions, Statuses,};
 #[allow(unused)]
@@ -144,10 +145,20 @@ pub fn upstream_of<'repo>(repository: &'repo Repository, branch: &Branch<'repo>)
     let [rem, branch_name]= upstream_name.split('/').take(2).next_chunk().unwrap();
 
     let remote = repository.find_remote(rem).ok()?;
-    // we have to drop branch_name, before ....returning .... upstream ... because it's moving out.
-    let b = branch_name.to_owned();
-    return Some((remote, upstream,
-                 // br.to_owned()
-                 b));
+    // we have to drop branch_name, before ....returning .... @upstream ... because it's moving out.
+    let name = branch_name.to_owned();
+    Some((remote, upstream, name))
+}
+
+
+// &Reference -> Branch
+pub fn to_branch<'repo>(repository: &'repo Repository, reference: &Reference<'repo>) -> Branch<'repo>
+{
+    // let b = Branch::wrap(*reference); // cannot move out of `*reference` which is behind a mutable reference
+    let name = Reference::normalize_name(reference.name().unwrap(), ReferenceFormat::NORMAL).unwrap();
+
+    repository
+        .find_branch(extract_name(&name), BranchType::Local)
+        .unwrap()
 }
 
