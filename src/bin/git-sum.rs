@@ -76,6 +76,13 @@ struct AddArgs {
 }
 
 #[derive(clap::Args)]
+struct RemoveArgs {
+    name: String,
+    summands: Vec<String>,
+}
+
+
+#[derive(clap::Args)]
 // why do I have this, and not #[arg()]?
 struct DefineArgs
 {
@@ -201,6 +208,9 @@ fn main()
                 // allocate new numbers
                 // create the symbolic refs
             }
+            Commands::Remove(args) => {
+                remove_from_sum(&repository, &args);
+            }
         }
     } else if let Some(args) = clip.define_or_show_args {
         if args.len() == 1 {
@@ -253,6 +263,16 @@ fn add_to_sum(repository: &Repository, args: &AddArgs) {
 
         sum.add_summands(repository, sumrefs.iter(), None).expect("failed to add summands");
     }
+}
+
+fn remove_from_sum(repository: &Repository, args: &RemoveArgs) {
+    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+
+    if let GitHierarchy::Sum(mut sum) = gh {
+        let sumrefs = resolve_references_from_user(repository, &args.summands);
+        sum.remove_summands(repository, sumrefs.iter()).expect("failed to add summands");
+    }
+
 }
 
 
