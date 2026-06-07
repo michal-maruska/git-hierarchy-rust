@@ -43,21 +43,24 @@ struct ClapGitRepo {
 
 #[derive(Subcommand)]
 enum Commands {
-    #[command(name="list", version, about, long_about = None,
-              long_flag("list"),short_flag('l'))]
+    /// List all sums
+    #[command(name="list", long_flag("list"),short_flag('l'))]
     List(ListArgs),
 
-    #[command(name="delete", version, about, long_about = None,
-              long_flag("delete"),short_flag('d'))]
+    /// delete the sum itself.
+    #[command(name="delete", long_about = "yes, ", short_flag('d'))]
     Delete(DeleteCmd),
 
-    #[command(name="define", version, about, long_about = None,long_flag("define"),short_flag('D'))]
+    /// define a new sum
+    #[command(name="define", long_about = None,long_flag("define"),short_flag('D'))]
     Define(DefineArgs),
 
-    #[command(name="show", version, about, long_about = None,long_flag("show"),short_flag('s'))]
+    /// dumnp the definition of the sum
+    #[command(name="show", long_about = None,long_flag("show"),short_flag('s'))]
     Show(ShowArgs),
 
-    #[command(name="add", version, about, long_about = None,long_flag("add"),short_flag('a'))]
+    /// add additional summands
+    #[command(name="add", long_about = None,long_flag("add"),short_flag('a'))]
     Add(AddArgs),
 
     // #[command(name="remove", version, about, long_about = None,long_flag("remove"),short_flag('r'))]
