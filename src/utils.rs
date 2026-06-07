@@ -57,6 +57,32 @@ where
      not_found)
 }
 
+// why  IntoIter ? we take ownership?
+pub fn iterator_symmetric_difference_indirect<T, K, U, I1, I2, MappingFn>(iter1: I1, iter2: I2, mapping: MappingFn)
+ -> (Vec<T>, Vec<K>)
+where
+    T: Hash + Eq,
+    I1: IntoIterator<Item = T>,
+    I2: IntoIterator<Item = K>,
+    MappingFn: Fn(K) -> U,
+    K: Clone,
+    U: Borrow<T>
+{
+    let mut hashed_set: HashSet<T> = iter1.into_iter().collect();
+    let mut not_found = Vec::<K>::new();
+
+    iter2.into_iter()
+        .for_each(|item|
+                  // Entry api ... has not remove/delete.
+                  if !hashed_set.remove(mapping(item.clone()).borrow()) {
+                      not_found.push(item);
+                  }
+        );
+    (hashed_set.drain().collect(), not_found)
+}
+
+
+
 
 pub fn init_tracing(verbose: u8) {
     if let Ok(rust_log) = std::env::var("RUST_LOG") {
