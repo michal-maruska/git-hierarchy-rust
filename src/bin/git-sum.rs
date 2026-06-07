@@ -63,8 +63,9 @@ enum Commands {
     #[command(name="add", long_about = None,long_flag("add"),short_flag('a'))]
     Add(AddArgs),
 
-    // #[command(name="remove", version, about, long_about = None,long_flag("remove"),short_flag('r'))]
-    // Remove(RemoveArgs),
+    /// remove the summand
+    #[command(name="remove", long_about = None,long_flag("remove"),short_flag('r'))]
+    Remove(RemoveArgs),
 }
 
 #[derive(clap::Args)]
