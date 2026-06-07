@@ -384,7 +384,51 @@ impl<'repo> Sum<'repo> {
     }
 
 
-    // todo: iterator?
+    pub fn remove_summands<'a>(
+        &mut self,
+        repository: &'repo Repository,
+        // todo: IntoIter
+        undesired: impl Iterator<Item = &'a Reference<'repo>>,
+        // I need mut to take ownership of items.
+        // Oid
+    ) -> Result<(), Error>
+    where 'repo : 'a {
+
+        // does this guarantee  1...N mapping?
+        // that might be done even earlier.
+        // alternatively vector (i, ref)?
+        let summands = self.numbered_summands(repository); // &repository is ok as well.
+
+        for un_d in undesired {
+            eprintln!("summand {}", un_d.name().unwrap());
+
+            if let Some(&(index, number, ref _r)) = summands.iter().find(|&(_i,_n,s)|
+                                    {
+                                        s == un_d
+                                    })
+            {
+                debug!("Would remove this summand {}, {} at {}", un_d.name().unwrap(), number, index);
+                // remove ... get the index, possible `shuffle' down
+                // or just remove the symbolic
+
+                // remove Nth...
+                // get it from the vector....
+                let mut git_ref = self.summands.remove(index);
+                git_ref.delete().unwrap();
+                // swap_remove()
+                // 2. remove from sum.summands.delete()
+                // 1. ref.
+            }
+
+        }
+//        let mut new_summands = create_summand_refs(repository, &self.name, max, components)?;
+// update!
+        // self.summands.append(&mut new_summands);
+
+        Ok(())
+    }
+
+
     pub fn summands(&self, repository: &'repo Repository) -> Vec<Reference<'repo>> {
         debug!("resolving summands for {:?}", self.name());
         // = Vec::with_capacity(self.summands.len());
@@ -397,6 +441,28 @@ impl<'repo> Sum<'repo> {
                 debug!("{:?} -> {:?}", summand.name().unwrap(),
                        symbolic_base.name().unwrap());
                 symbolic_base
+            }).collect()
+    }
+
+    pub fn numbered_summands(&self, repository: &'repo Repository) -> Vec<(usize, usize, Reference<'repo>)> {
+        debug!("resolving summands for {:?}", self.name());
+        // = Vec::with_capacity(self.summands.len());
+        self.summands.iter().enumerate().map(
+            |(index, summand)| {
+                if let Some((n, v)) = summand.name().unwrap().strip_prefix(SUM_SUMMAND_PATTERN).unwrap().split_once('/') {
+                assert_eq!(self.name, n);
+
+                let number  = v.parse::<usize>().unwrap();
+
+                let symbolic_base = repository.find_reference(
+                    summand.symbolic_target().expect("base should be a symbolic reference"),
+                ).expect("the summand symbolic target should exist");
+
+                debug!("{:?} -> {:?}", summand.name().unwrap(), symbolic_base.name().unwrap());
+                (index, number, symbolic_base)
+                } else {
+                    panic!();
+                }
             }).collect()
     }
 
