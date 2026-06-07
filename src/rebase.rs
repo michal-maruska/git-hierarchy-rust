@@ -22,7 +22,7 @@ use colored::Colorize;
 use thiserror;
 
 
-use crate::utils::{iterator_symmetric_difference};
+use crate::utils::{iterator_symmetric_difference_indirect};
 
 #[allow(unused)]
 use crate::git_hierarchy::{GitHierarchy, Segment, Sum, load};
@@ -562,17 +562,39 @@ pub fn check_sum<'repo>(
         debug!("  {}", c);
     }
 
-    let (u,v) = iterator_symmetric_difference(
-        graphed_summands.iter().map(|gh| {
+    // I need a mapping function
+    // iter1, iter2, map-domain2-to-domain1
+    let (summands_away, unknown_parents) = iterator_symmetric_difference_indirect(
+        parent_commits,
+        // iterator over summands (gh
+        // but I can borrow<cid> from Reference.
+        // hash these
+        graphed_summands.iter(),
+        |gh| {
             debug!("mapping {:?} to {:?}", gh.node_identity(),
-                   gh.commit().unwrap().id());
+                gh.commit().unwrap().id());
             gh.commit().unwrap().id()
-        }),
-        parent_commits);
+        }
+    );
 
 
-    if !(u.is_empty() && v.is_empty()) {
+    if !(summands_away.is_empty() && unknown_parents.is_empty()) {
         warn!("sum {} is not well-positioned", sum.name());
+
+        if ! summands_away.is_empty() {
+            warn!("some summands are not in parents:");
+            for i in summands_away {
+                warn!("{}", i);
+            }
+        }
+
+        if !unknown_parents.is_empty() {
+            warn!("some parents are not in summands");
+            for i in unknown_parents {
+                warn!("{}", i.node_identity());
+            }
+        }
+
         return Err(RebaseError::WrongHierarchy(sum.name().to_owned()));
     }
     /*
