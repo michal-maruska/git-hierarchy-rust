@@ -1,7 +1,3 @@
-//
-// - clone
-// - replaceInHierarchy ...the base from->to, mapping
-
 use clap::Parser;
 use git2::{Repository,Reference};
 
@@ -29,6 +25,42 @@ use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load,
 use ::git_hierarchy::rebase::check_sum;
 #[allow(unused)]
 use tracing::{debug, info};
+
+/** walk the hierarchy and:
+ - visit & display a list of segments/sums.
+ - clone
+ - replaceInHierarchy ...the base from->to, mapping
+*/
+#[derive(Parser, Debug)]
+#[command(version,verbatim_doc_comment)]
+struct Cli {
+    // multiple short chars?
+    #[arg(long, short='D')]
+    directory: Option<PathBuf>,
+
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+
+    /// shorten the information shown
+    #[arg(short='s', group = "format")]
+    short: bool,
+
+/*
+    /// resolve the head
+    #[arg(short='G', group = "format")]
+    resolve: bool,
+*/
+    #[arg(long, short='r', num_args(2))]
+    replace: Vec<String>,
+
+    // suffix, or  suffix-remove, suffix-add
+    #[arg(long, short = 'c', num_args(1..3))]
+    clone: Vec<String>,
+    // Bug:
+
+    // fixme: here we can use -- to end the vector?
+    root_reference: Option<String>,
+}
 
 
 fn list_segment_commits<'repo>(repository: &'repo Repository, segment: &Segment<'repo>) {
@@ -282,29 +314,6 @@ where
     }
 }
 
-/// walk the hierarchy
-/// - visit & display a list of segments/sums.
-#[derive(Parser, Debug)]
-#[command(version)]
-struct Cli {
-    #[arg(long, short='g')]
-    directory: Option<PathBuf>,
-
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    verbose: u8,
-    #[arg(short='s')]
-    short: bool,
-
-    #[arg(long, short = 'r', num_args(2))]
-    replace: Vec<String>,
-
-    // suffix, or  suffix-remove, suffix-add
-    #[arg(long, short = 'c', num_args(1..3))]
-    clone: Vec<String>,
-
-    // fixme: here we can use -- to end the vector?
-    root_reference: Option<String>,
-}
 
 // detached head? -> None
 fn current_branch(repository: &'_ Repository) -> Option<String> {
