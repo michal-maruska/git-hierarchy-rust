@@ -32,6 +32,7 @@ pub fn git_same_ref(
 }
 
 // ancestor <---is parent-- ........ descendant
+// fixme: is this wrong?   Initial........descendant ......ancestor   would say true, but it's not!
 pub fn is_linear_ancestor(repository: &Repository, ancestor: Oid, descendant: Oid) -> Result<bool,git2::Error>
 {
     if ancestor == descendant { return Ok(true);}
@@ -39,7 +40,9 @@ pub fn is_linear_ancestor(repository: &Repository, ancestor: Oid, descendant: Oi
     let mut walk = repository.revwalk()?;
     walk.push(descendant)?; // .expect("should set upper bound for Walk");
     // segment.reference.borrow().target().unwrap()
-    walk.hide(ancestor)?; // .expect("should set the lower bound for Walk");
+
+    // mmc: maybe hide the parent of the ancestor.
+    // walk.hide(ancestor)?; // .expect("should set the lower bound for Walk");
 
     walk.set_sorting(Sort::TOPOLOGICAL)?; // .expect("should set the topo ordering of the Walk");
 
@@ -48,8 +51,17 @@ pub fn is_linear_ancestor(repository: &Repository, ancestor: Oid, descendant: Oi
     }
 
     for oid in walk {
-        if repository.find_commit(oid.unwrap())?.parent_count() > 1 {
-            warn!("is_linear_ancestor: merge commit found");
+        // None at the end?
+        if let Ok(oid) = oid {
+            if oid == ancestor {
+                return Ok(true);
+            }
+            // slow?
+            if repository.find_commit(oid)?.parent_count() > 1 {
+                warn!("is_linear_ancestor: merge commit found");
+                return Ok(false);
+            }
+        } else {
             return Ok(false);
         }
     }
