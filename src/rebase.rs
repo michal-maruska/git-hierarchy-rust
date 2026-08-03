@@ -532,6 +532,44 @@ fn ref_related_to(repo: &Repository,
     }
 }
 
+fn match_commits_to_references<'repo>( //  A,B
+    repo: &Repository,
+    a_vec: Vec<Reference<'repo>>,
+    mut b_vec: Vec<Oid>,
+) -> (Vec<Reference<'repo>>, Vec<Oid>) {
+    // Vec<(&'a Reference, &'a Oid)>,
+
+    let mut pairs = Vec::new();
+    let mut unmatched_a = Vec::new();
+
+    for a in a_vec {
+        match b_vec.iter().position(|b| ref_related_to(repo, &a, *b)) {
+            Some(i) => {
+                debug!("found history relation! {}", a.name().unwrap());
+                let b = b_vec.swap_remove(i);
+                pairs.push((a, b));
+            }
+            None => unmatched_a.push(a),
+        }
+    }
+
+    // pairs
+    if ! unmatched_a.is_empty() {
+        warn!("Not matched");
+        for r in &unmatched_a {
+            warn!("{}", r.name().unwrap());
+        }
+    }
+
+    if ! b_vec.is_empty() {
+        warn!("Still some commits not matched");
+    }
+
+    (unmatched_a, b_vec)
+
+}
+
+
 pub fn check_summands<'repo>(
     repository: &'repo Repository,
     sum: &Sum<'repo>,
