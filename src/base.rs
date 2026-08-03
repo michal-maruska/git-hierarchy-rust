@@ -35,6 +35,7 @@ pub fn git_same_ref(
 // fixme: is this wrong?   Initial........descendant ......ancestor   would say true, but it's not!
 pub fn is_linear_ancestor(repository: &Repository, ancestor: Oid, descendant: Oid) -> Result<bool,git2::Error>
 {
+    debug!("is_linear_ancestor: {} ---parent---> {}", descendant, ancestor);
     if ancestor == descendant { return Ok(true);}
 
     let mut walk = repository.revwalk()?;
@@ -58,7 +59,7 @@ pub fn is_linear_ancestor(repository: &Repository, ancestor: Oid, descendant: Oi
             }
             // slow?
             if repository.find_commit(oid)?.parent_count() > 1 {
-                warn!("is_linear_ancestor: merge commit found");
+                debug!("is_linear_ancestor: merge commit found");
                 return Ok(false);
             }
         } else {
