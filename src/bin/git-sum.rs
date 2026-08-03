@@ -6,6 +6,7 @@ use colored::Colorize;
 
 #[allow(unused_imports)]
 use git_hierarchy::git_hierarchy::{GitHierarchy,Sum,load,sums, sum_fmt};
+use git_hierarchy::rebase::check_summands;
 
 
 #[allow(unused)]
@@ -251,6 +252,16 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) {
             println!("\t {}", s.name().unwrap());
         }
         // report if clean or dirty.
+        let summands_gh : Vec<GitHierarchy<'_>> =
+            summands.into_iter().map(|x|
+                git_hierarchy::git_hierarchy::load(repository, x.name().unwrap()).unwrap()).collect();
+
+        let summands_refs = summands_gh.iter().collect();
+
+        check_summands(repository,
+            &sum,
+            &sum.parent_commits(),
+            &summands_refs).expect("Sum verification should finish");
 
         // prune non-existings summands ??? why?
         // fn show_prune_definition(){unimplemented!()}
