@@ -253,13 +253,21 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) {
     }
 }
 
+// summands: Vec<String>,
+fn resolve_references_from_user<'repo, S, VS, >(repository: &'repo Repository, names: VS) -> Vec<Reference<'repo>>
+where VS: IntoIterator<Item = S>,
+    S: AsRef<str>
+{
+    // resolve the given references
+    names.into_iter().map(|x| {
+        repository.resolve_reference_from_short_name(x.as_ref()).unwrap()
+    }).collect()
+}
+
 fn add_to_sum(repository: &Repository, args: &AddArgs) {
     let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs : Vec<Reference>
-            = args.summands.iter().map(|x| {
-                repository.resolve_reference_from_short_name(x.as_ref()).unwrap()
-            }).collect();
+        let sumrefs = resolve_references_from_user(repository, &args.summands);
 
         sum.add_summands(repository, sumrefs.iter(), None).expect("failed to add summands");
     }
