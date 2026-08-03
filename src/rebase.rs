@@ -1,13 +1,14 @@
 #![deny(elided_lifetimes_in_paths)]
 
 // rebase segment.
-use git2::{Branch, BranchType, Error, Commit,
-           Oid,
-           Repository,RepositoryState,
-           StatusOptions, StatusShow,
+use git2::{ Branch, BranchType, Error, Commit,
+    Oid,
+    Reference,
+    Repository,RepositoryState,
+    StatusOptions, StatusShow,
 
-           CherrypickOptions,
-           build::CheckoutBuilder,
+    CherrypickOptions,
+    build::CheckoutBuilder,
 };
 
 use std::collections::HashMap;
@@ -512,6 +513,23 @@ pub fn check_segment(repository: &Repository, segment: &Segment<'_>) -> Result<(
 
     // start.is_ancestor(reference);
     Ok(())
+}
+
+/// more heuristics, more permissive
+fn ref_related_to(repo: &Repository,
+    branch: &Reference<'_>,
+    commit: Oid) -> bool {      // Commit<'_>
+    // if both:
+    // take 1 1
+    // if ancestor, or in reflog.
+
+    // ancestor
+    if is_linear_ancestor(repo, commit, branch.target().unwrap()).unwrap() {
+        return true;
+    } else {
+        // reflog
+        return false;
+    }
 }
 
 pub fn check_sum<'repo>(
