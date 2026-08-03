@@ -532,6 +532,75 @@ fn ref_related_to(repo: &Repository,
     }
 }
 
+pub fn check_summands<'repo>(
+    repository: &'repo Repository,
+    sum: &Sum<'repo>,
+    parent_commits: &[Oid],
+    summands: &Vec<&GitHierarchy<'repo>>)
+ -> Result<(), RebaseError>
+{
+    // I need a mapping function
+    // iter1, iter2, map-domain2-to-domain1
+    let (unknown_parents, summands_away) = iterator_symmetric_difference_indirect(
+        parent_commits.iter().copied(),
+        summands, // & fails
+        // mapping
+        |gh| {
+            debug!("mapping {:?} to {:?}", gh.node_identity(),
+                gh.commit().unwrap().id());
+            gh.commit().unwrap().id()
+        }
+    );
+
+    // now map permissively:
+    // if the summand moved up.
+    // parent ... find whose ancestor it is.
+
+
+    if !(summands_away.is_empty() && unknown_parents.is_empty()) {
+        warn!("sum {} is not up-to-date. Looking closer...", sum.name());
+
+        // one more attempt
+        // convert gh -> reference
+        let summands_references = summands_away.iter().map(|x| x.reference_clone(repository).expect("gh should have reference associated") ).collect();
+
+        let (summands_refs_away, unknown_parents) = match_commits_to_references(repository, summands_references, unknown_parents);
+
+        if ! summands_refs_away.is_empty() {
+            warn!("some summands are not in parents:");
+            for i in summands_refs_away {
+                warn!("{}", i.name().unwrap());
+            }
+        } else {
+            if unknown_parents.is_empty() {
+                info!("solved all, summands only grew");
+                return Ok(());
+            }
+        }
+
+        if !unknown_parents.is_empty() {
+            warn!("some parents are not in summands");
+            for i in unknown_parents {
+                warn!("{}", i);
+            }
+        }
+
+        return Err(RebaseError::WrongHierarchy(sum.name().to_owned()));
+    }
+    /*
+    (mapped, rest_summands, left_overs_parent_commits) = distribute(sum);
+    // either it went ahead ....or? what if it's rebased?m
+       
+    for bad in rest_summands {
+        // try to find in over
+        find_ancestor()
+    }
+
+    */
+
+    Ok(())
+}
+
 pub fn check_sum<'repo>(
     repository: &'repo Repository,
     sum: &Sum<'repo>,
@@ -580,52 +649,7 @@ pub fn check_sum<'repo>(
         debug!("  {}", c);
     }
 
-    // I need a mapping function
-    // iter1, iter2, map-domain2-to-domain1
-    let (summands_away, unknown_parents) = iterator_symmetric_difference_indirect(
-        parent_commits,
-        // iterator over summands (gh
-        // but I can borrow<cid> from Reference.
-        // hash these
-        graphed_summands.iter(),
-        |gh| {
-            debug!("mapping {:?} to {:?}", gh.node_identity(),
-                gh.commit().unwrap().id());
-            gh.commit().unwrap().id()
-        }
-    );
-
-
-    if !(summands_away.is_empty() && unknown_parents.is_empty()) {
-        warn!("sum {} is not well-positioned", sum.name());
-
-        if ! summands_away.is_empty() {
-            warn!("some summands are not in parents:");
-            for i in summands_away {
-                warn!("{}", i);
-            }
-        }
-
-        if !unknown_parents.is_empty() {
-            warn!("some parents are not in summands");
-            for i in unknown_parents {
-                warn!("{}", i.node_identity());
-            }
-        }
-
-        return Err(RebaseError::WrongHierarchy(sum.name().to_owned()));
-    }
-    /*
-    (mapped, rest_summands, left_overs_parent_commits) = distribute(sum);
-    // either it went ahead ....or? what if it's rebased?
-    for bad in rest_summands {
-        // try to find in over
-        find_ancestor()
-    }
-
-    */
-
-    Ok(())
+    check_summands(repository, sum, &parent_commits, &graphed_summands)
 }
 
 #[cfg(test)]
