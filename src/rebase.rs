@@ -391,7 +391,7 @@ pub fn segment_to_continue(repository: &Repository) -> Option<(String,Option<(St
     // this can fail: if we failed on the last commit, at the moment of commit -- empty or whatever.
     match lines.next_back() {
         None =>
-            return Some((segment_name, None)),
+            Some((segment_name, None)),
         Some(oid) => {
             let skip : usize = lines.next_back().unwrap().parse().expect("should be a number");
             debug!("from file: continue on {}, after {:?}", segment_name, oid);
