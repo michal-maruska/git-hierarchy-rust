@@ -380,7 +380,7 @@ pub fn segment_to_continue(repository: &Repository) -> Option<(String,Option<(St
 
     if ! fs::exists(&path).unwrap() {
         // eprintln!
-        warn!("marker file does not exist -- no segment is being rebased.");
+        debug!("marker file does not exist -- no segment is being rebased.");
         return None;
     }
 
