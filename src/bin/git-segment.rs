@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use clap::{Parser,Subcommand,CommandFactory,FromArgMatches};
+use git_hierarchy::base::is_linear_ancestor;
 use git2::{Repository,Oid}; // ,build::CheckoutBuilder
 
 #[allow(unused_imports)]
@@ -196,7 +197,18 @@ fn describe(repository: &Repository, segment_name: &str) {
                  segment.iter(repository).unwrap().count(),
                  if segment.uptodate(repository) { "clean" } else { "dirty"}
         );
+        // check if start is ancestor !!!
+        if !is_linear_ancestor(repository,
+            segment.start(),
+            segment.reference.borrow().peel_to_commit().unwrap().id()
+        ).unwrap() {
+            // quite an error!
+            panic!("Start is not ancestor!");
+            // println!("Start is not ancestor!");
+        }
+
         // uptodate?
+        // fixme: if not ancestor, is this intended?
         for oid in segment.iter(repository).unwrap() {
             let oid = oid.unwrap();
             let commit = repository.find_commit(oid).unwrap();
