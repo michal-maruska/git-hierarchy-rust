@@ -128,7 +128,7 @@ fn describe_node<'repo>(
             let summands = sum.summands(repository);
 
             println!("sum {}", sum_fmt(sum.name()));
-            if let Err(_) = check_sum(repository, sum, object_map) {
+            if check_sum(repository, sum, object_map).is_err() {
                 println!("{}", "needs update".bright_red().on_white());
             }
 
