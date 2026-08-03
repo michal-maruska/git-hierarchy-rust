@@ -492,6 +492,23 @@ pub enum GitHierarchy<'repo> {
 }
 
 impl<'repo> GitHierarchy<'repo> {
+    pub fn reference_clone(&self, repository: &'repo Repository) -> Result<Reference<'repo>, git2::Error> {
+        let reference: &Reference<'_> = match &self {
+            GitHierarchy::Name(x) => {
+                eprintln!("trying {x}");
+                // fixme:
+                panic!("bad state");
+                // unimplemented!(),
+            }
+            GitHierarchy::Segment(s) => &s.reference.borrow(),
+            GitHierarchy::Sum(s) => &s.reference.borrow(),
+            GitHierarchy::Reference(r) => r,
+        };
+        // clone: italic
+        let clone = repository.find_reference(reference.name().expect("gh reference should have a name")).expect("should contain existing reference");
+        Ok(clone)
+    }
+
     pub fn commit(&self) -> Result<Commit<'_>, git2::Error> {
         let reference: &Reference<'_> = match &self {
             GitHierarchy::Name(x) => {
