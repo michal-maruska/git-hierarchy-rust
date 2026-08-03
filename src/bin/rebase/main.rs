@@ -281,7 +281,7 @@ fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Resu
         // why redo this? see above ^^
 
         let mut branch = to_branch(repository, reference);
-        if let Some((mut remote, remote_branch, remote_branch_name)) = upstream_of(repository, &branch) {
+        if let Some((mut remote, _remote_branch, remote_branch_name)) = upstream_of(repository, &branch) {
 
             if git_same_ref(repository, reference, branch.get()) {
                 // we might be behind?
