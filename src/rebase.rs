@@ -525,10 +525,10 @@ fn ref_related_to(repo: &Repository,
 
     // ancestor
     if is_linear_ancestor(repo, commit, branch.target().unwrap()).unwrap() {
-        return true;
+        true
     } else {
         // reflog
-        return false;
+        false
     }
 }
 
