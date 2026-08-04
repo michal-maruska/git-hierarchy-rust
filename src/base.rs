@@ -69,6 +69,26 @@ pub fn is_linear_ancestor(repository: &Repository, ancestor: Oid, descendant: Oi
     Ok(true)
 }
 
+
+/// Searches the reflog of `ref_name` for entries whose new OID matches `target`.
+/// Returns the index into the reflog (0 = most recent entry) of the first match, if any.
+pub fn find_commit_in_reflog(
+    repo: &Repository,
+    ref_name: &str,
+    target: Oid,
+) -> Result<Option<usize>, git2::Error> {
+    let reflog = repo.reflog(ref_name)?;
+
+    for (i, entry) in reflog.iter().enumerate() {
+        if entry.id_new() == target {
+            return Ok(Some(i));
+        }
+    }
+
+    Ok(None)
+}
+
+
 pub const GIT_HEADS_PATTERN: &str = "refs/heads/";
 
 /// alternative to:
