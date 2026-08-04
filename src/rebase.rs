@@ -32,8 +32,9 @@ use crate::graph::discover::NodeExpander;
 
 use crate::execute::git_run;
 use crate::base::{checkout_new_head_at,
-                  staged_files,
-                  is_linear_ancestor,
+    staged_files,
+    is_linear_ancestor,
+    find_commit_in_reflog
 };
 
 
@@ -529,6 +530,9 @@ fn ref_related_to(repo: &Repository,
         true
     } else {
         // reflog
+        if find_commit_in_reflog(repo, branch.name().expect("should have a name"), commit).is_ok_and(|x| x.is_some()){
+            return true;
+        }
         false
     }
 }
