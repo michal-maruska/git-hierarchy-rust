@@ -1,7 +1,8 @@
 #![deny(elided_lifetimes_in_paths)]
 
 // rebase segment.
-use git2::{ Branch, BranchType, Error, Commit,
+use git2::{
+    Branch, BranchType, Error, Commit,
     Oid,
     Reference,
     Repository,RepositoryState,
