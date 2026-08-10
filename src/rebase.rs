@@ -588,4 +588,44 @@ pub fn check_sum<'repo>(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::TestRepo;
+    use std::fs;
+
+    #[test]
+    fn test_rebase_error_display_and_conversions() {
+        let err1 = RebaseError::WrongHierarchy("branch-a".to_string());
+        assert_eq!(err1.to_string(), "hierarchy broken at branch-a");
+
+        let err2 = RebaseError::WrongState;
+        assert_eq!(err2.to_string(), "repository in wrong state during rebase");
+
+        let err3 = RebaseError::Default;
+        assert_eq!(err3.to_string(), "rebase error");
+
+        let git_err = git2::Error::from_str("some git error");
+        let converted_git: RebaseError = git_err.into();
+        assert!(matches!(converted_git, RebaseError::Default));
+
+        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "io error");
+        let converted_io: RebaseError = io_err.into();
+        assert!(matches!(converted_io, RebaseError::Default));
+    }
+
+    #[test]
+    fn test_marker_file_creation() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let path = marker_filename(repo);
+        assert!(path.ends_with(MARKER_FILENAME));
+
+        create_marker_file(repo, "test-content").unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "test-content");
+    }
+}
+
 
