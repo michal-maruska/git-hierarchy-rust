@@ -6,7 +6,7 @@ use core::convert::Infallible;
 //
 
 // ── The control-flow enum ─────────────────────────────────────────────────────
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Collected<V> {
     Ok(V),
     Fail(V),   // V is the partial accumulator at the point of failure
@@ -56,15 +56,36 @@ where
 #[cfg(test)]
 mod test {
     use super::*;
+
     #[test]
     fn test_simple() {
-
         let input = vec!["1", "2", "3"];
-        println!("{:?}", try_collect(input.iter().map(|s| s.parse::<i32>())));
-        // ↳  Ok([1, 2, 3])
+        let res = try_collect(input.iter().map(|s| s.parse::<i32>()));
+        assert_eq!(res, Collected::Ok(vec![1, 2, 3]));
 
         let input = vec!["1", "2", "oops", "4"];
-        println!("{:?}", try_collect(input.iter().map(|s| s.parse::<i32>())));
-        // ↳  Fail([1, 2])   — "4" never visited
+        let res = try_collect(input.iter().map(|s| s.parse::<i32>()));
+        assert_eq!(res, Collected::Fail(vec![1, 2]));
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let input: Vec<&str> = vec![];
+        let res = try_collect(input.iter().map(|s| s.parse::<i32>()));
+        assert_eq!(res, Collected::Ok(vec![]));
+    }
+
+    #[test]
+    fn test_collected_try_trait() {
+        let ok_c = Collected::from_output(42);
+        assert_eq!(ok_c, Collected::Ok(42));
+        assert!(matches!(ok_c.branch(), ControlFlow::Continue(42)));
+
+        let fail_c = Collected::Fail(10);
+        assert!(matches!(fail_c.branch(), ControlFlow::Break(Err(10))));
+
+        let residual: Result<Infallible, i32> = Err(99);
+        let from_res = Collected::from_residual(residual);
+        assert_eq!(from_res, Collected::Fail(99));
     }
 }
