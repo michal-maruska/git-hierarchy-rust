@@ -91,6 +91,8 @@ mod test {
         assert_eq!("name", extract_name("name"));
         assert_eq!("name", extract_name("heads/name"));
         assert_eq!("name", extract_name("refs/heads/name"));
+        assert_eq!("feature/branch", extract_name("ref: refs/heads/feature/branch"));
+        assert_eq!("master", extract_name("ref: master"));
     }
 
     #[test]
