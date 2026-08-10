@@ -139,7 +139,7 @@ pub fn open_repository(directory_option: Option<&PathBuf>) -> Result<Repository,
 
 pub fn upstream_of<'repo>(repository: &'repo Repository, branch: &Branch<'repo>) -> Option<(Remote<'repo>, Branch<'repo>, String)>
 {
-    let upstream = branch.upstream().unwrap();
+    let upstream = branch.upstream().ok()?;
 
     let upstream_name = upstream.name().unwrap().unwrap();
     let [rem, branch_name]= upstream_name.split('/').take(2).next_chunk().unwrap();
