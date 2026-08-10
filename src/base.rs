@@ -7,7 +7,6 @@ use git2::{Branch, BranchType, Commit, Oid,
            Reference, Repository, build::CheckoutBuilder,
            Remote,
            ReferenceFormat,
-           Sort,
            StatusShow,StatusOptions, Statuses,};
 #[allow(unused)]
 use tracing::{debug, info, warn};
@@ -33,40 +32,28 @@ pub fn git_same_ref(
 
 // ancestor <---is parent-- ........ descendant
 // fixme: is this wrong?   Initial........descendant ......ancestor   would say true, but it's not!
-pub fn is_linear_ancestor(repository: &Repository, ancestor: Oid, descendant: Oid) -> Result<bool,git2::Error>
-{
+pub fn is_linear_ancestor(repository: &Repository, ancestor: Oid, descendant: Oid) -> Result<bool, git2::Error> {
     debug!("is_linear_ancestor: {} ---parent---> {}", descendant, ancestor);
-    if ancestor == descendant { return Ok(true);}
-
-    let mut walk = repository.revwalk()?;
-    walk.push(descendant)?; // .expect("should set upper bound for Walk");
-    // segment.reference.borrow().target().unwrap()
-
-    // mmc: maybe hide the parent of the ancestor.
-    // walk.hide(ancestor)?; // .expect("should set the lower bound for Walk");
-
-    walk.set_sorting(Sort::TOPOLOGICAL)?; // .expect("should set the topo ordering of the Walk");
-
-    if walk.next().is_none() {
-        return Ok(false);
+    if ancestor == descendant {
+        return Ok(true);
     }
 
-    for oid in walk {
-        // None at the end?
-        if let Ok(oid) = oid {
-            if oid == ancestor {
-                return Ok(true);
-            }
-            // slow?
-            if repository.find_commit(oid)?.parent_count() > 1 {
-                debug!("is_linear_ancestor: merge commit found");
-                return Ok(false);
-            }
-        } else {
+    let mut current_oid = descendant;
+    loop {
+        let commit = repository.find_commit(current_oid)?;
+        if commit.parent_count() > 1 {
+            debug!("is_linear_ancestor: merge commit found at {}", current_oid);
             return Ok(false);
         }
+        if commit.parent_count() == 0 {
+            return Ok(false);
+        }
+        let parent_oid = commit.parent_id(0)?;
+        if parent_oid == ancestor {
+            return Ok(true);
+        }
+        current_oid = parent_oid;
     }
-    Ok(true)
 }
 
 
