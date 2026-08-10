@@ -147,6 +147,27 @@ mod test {
     }
 
     #[test]
+    fn test_iterator_symmetric_difference_indirect() {
+        #[derive(Clone)]
+        struct Wrapper(i32);
+
+        let set1 = vec![1, 2, 10, 16];
+        let set2 = vec![Wrapper(0), Wrapper(2), Wrapper(5), Wrapper(6)];
+
+        let (mut unselected, missing) = iterator_symmetric_difference_indirect(
+            set1,
+            set2,
+            |w: Wrapper| w.0,
+        );
+
+        unselected.sort();
+        assert_eq!(unselected, vec![1, 10, 16]);
+
+        let missing_vals: Vec<i32> = missing.into_iter().map(|w| w.0).collect();
+        assert_eq!(missing_vals, vec![0, 5, 6]);
+    }
+
+    #[test]
     fn test_iterator_difference () {
         let real = [1, 2, 10, 16];
         let selected = [0, 2, 5, 6];
