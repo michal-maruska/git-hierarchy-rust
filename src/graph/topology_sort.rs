@@ -13,7 +13,7 @@ pub fn topological_sort(graph: &[Vec<usize>]) -> Option<Vec<usize>> {
 
     // Calculate in-degrees for each vertex
     let mut in_degree = vec![0; n];
-    for (n, neighbors) in graph.iter().enumerate() {
+    for (_node_idx, neighbors) in graph.iter().enumerate() {
         for &v in neighbors {
             if v < n {
                 // Bounds check
