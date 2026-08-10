@@ -267,5 +267,23 @@ mod tests {
         let found_branch = to_branch(repo, reference);
         assert_eq!(found_branch.name().unwrap().unwrap(), "feature-x");
     }
+
+    #[test]
+    fn test_find_commit_in_reflog() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let _branch = repo.branch("main", &commit1, false).unwrap();
+
+        let found = find_commit_in_reflog(repo, "refs/heads/main", commit1.id()).unwrap();
+        assert_eq!(found, Some(0));
+
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+        repo.reference("refs/heads/main", commit2.id(), true, "update main").unwrap();
+
+        let found2 = find_commit_in_reflog(repo, "refs/heads/main", commit2.id()).unwrap();
+        assert_eq!(found2, Some(0));
+    }
 }
 
