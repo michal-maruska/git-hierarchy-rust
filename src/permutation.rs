@@ -19,16 +19,14 @@ pub fn reorder_by_permutation<T>(vec: &mut [T], permutation: &[usize]) {
 
         // For each cycle, we need to rotate elements
         // If we have cycle a -> b -> c -> a, we do: swap(a,b), swap(a,c)
-        let mut current = start;
-        let mut next = permutation[current];
+        let mut next = permutation[start];
 
         while next != start {
-            vec.swap(current, next);
-            visited[current] = true;
-            current = next;
-            next = permutation[current];
+            vec.swap(start, next);
+            visited[next] = true;
+            next = permutation[next];
         }
-        visited[current] = true;
+        visited[start] = true;
     }
 }
 
