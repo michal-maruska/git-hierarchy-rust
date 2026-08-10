@@ -162,3 +162,77 @@ pub fn to_branch<'repo>(repository: &'repo Repository, reference: &Reference<'re
         .unwrap()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::{create_commit, TestRepo};
+    use std::fs;
+
+    #[test]
+    fn test_git_same_ref() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+
+        let b1 = repo.branch("b1", &commit1, false).unwrap();
+        let b2 = repo.branch("b2", &commit1, false).unwrap();
+        let b3 = repo.branch("b3", &commit2, false).unwrap();
+
+        assert!(git_same_ref(repo, b1.get(), b2.get()));
+        assert!(!git_same_ref(repo, b1.get(), b3.get()));
+    }
+
+    #[test]
+    fn test_is_linear_ancestor() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+        let commit3 = create_commit(repo, "commit 3", &[&commit2]);
+
+        // Ancestor check: commit1 is ancestor of commit3
+        assert!(is_linear_ancestor(repo, commit1.id(), commit3.id()).unwrap());
+        assert!(is_linear_ancestor(repo, commit2.id(), commit3.id()).unwrap());
+        assert!(is_linear_ancestor(repo, commit1.id(), commit1.id()).unwrap());
+
+        // Reverse is false
+        assert!(!is_linear_ancestor(repo, commit3.id(), commit1.id()).unwrap());
+
+        // Merge commit break linearity check
+        let branch_commit = create_commit(repo, "branch commit", &[&commit1]);
+        let merge_commit = create_commit(repo, "merge commit", &[&commit3, &branch_commit]);
+
+        // Linear ancestor through merge commit should return false
+        assert!(!is_linear_ancestor(repo, commit1.id(), merge_commit.id()).unwrap());
+    }
+
+    #[test]
+    fn test_repository_clean() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        assert!(repository_clean(repo));
+
+        // Create an untracked file, repository_clean should still be true if options ignore untracked
+        let file_path = test_repo.path.join("untracked.txt");
+        fs::write(&file_path, "hello").unwrap();
+        assert!(repository_clean(repo));
+    }
+
+    #[test]
+    fn test_to_branch() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+        let branch = repo.branch("feature-x", &commit, false).unwrap();
+        let reference = branch.get();
+
+        let found_branch = to_branch(repo, reference);
+        assert_eq!(found_branch.name().unwrap().unwrap(), "feature-x");
+    }
+}
+
