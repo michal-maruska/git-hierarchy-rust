@@ -68,3 +68,40 @@ impl Graph {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_graph_new_and_default() {
+        let g1 = Graph::new();
+        assert_eq!(g1.vertices, 0);
+
+        let g2 = Graph::default();
+        assert_eq!(g2.vertices, 0);
+    }
+
+    #[test]
+    fn test_graph_toposort() {
+        let mut g = Graph::new();
+        g.add_vertices(2); // indices 0, 1, 2
+        g.add_edge(0, 1);
+        g.add_edge(1, 2);
+
+        let order = g.toposort();
+        assert_eq!(order, vec![0, 1, 2]);
+    }
+
+    #[test]
+    #[should_panic(expected = "bad topo order")]
+    fn test_graph_toposort_cycle_panics() {
+        let mut g = Graph::new();
+        g.add_vertices(2);
+        g.add_edge(0, 1);
+        g.add_edge(1, 2);
+        g.add_edge(2, 0);
+
+        g.toposort();
+    }
+}
