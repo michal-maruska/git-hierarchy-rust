@@ -483,3 +483,107 @@ impl<'a> NodeExpander for GitHierarchy<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::{create_commit, TestRepo};
+
+    #[test]
+    fn test_formatting_and_helper_names() {
+        assert_eq!(base_name("feature"), "refs/base/feature");
+        assert_eq!(start_name("feature"), "refs/start/feature");
+
+        // Format functions return ColoredString with ANSI codes
+        assert_eq!(segment_fmt("test"), "test".red().bold().underline());
+        assert_eq!(plain_ref_fmt("test"), "test".green().bold().underline());
+        assert_eq!(sum_fmt("test"), "test".yellow().bold().italic());
+    }
+
+    #[test]
+    fn test_segment_creation_and_load() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+
+        let base_branch = repo.branch("main", &commit1, false).unwrap();
+
+        let segment = Segment::create(
+            repo,
+            "feature",
+            base_branch.get(),
+            commit1.id(),
+            commit2.id(),
+        )
+        .unwrap();
+
+        assert_eq!(segment.name(), "feature");
+        assert_eq!(segment.start(), commit1.id());
+        assert!(segment.uptodate(repo));
+        assert!(!segment.empty(repo));
+        assert_eq!(segment.git_revisions(), "refs/start/feature..refs/heads/feature");
+
+        let loaded = load(repo, "feature").unwrap();
+        if let GitHierarchy::Segment(loaded_seg) = loaded {
+            assert_eq!(loaded_seg.name(), "feature");
+            assert_eq!(GitHierarchy::Segment(loaded_seg).node_identity(), "feature");
+        } else {
+            panic!("Expected GitHierarchy::Segment");
+        }
+
+        let seg_list: Vec<String> = segments(repo).collect();
+        assert!(seg_list.contains(&"feature".to_string()));
+    }
+
+    #[test]
+    fn test_load_plain_reference() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+        repo.branch("main", &commit, false).unwrap();
+
+        let loaded = load(repo, "main").unwrap();
+        if let GitHierarchy::Reference(r) = loaded {
+            assert_eq!(r.name().unwrap(), "refs/heads/main");
+        } else {
+            panic!("Expected GitHierarchy::Reference");
+        }
+    }
+
+    #[test]
+    fn test_sum_creation_and_load() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[]);
+        let merge_commit = create_commit(repo, "merge", &[&commit1, &commit2]);
+
+        let b1 = repo.branch("b1", &commit1, false).unwrap();
+        let b2 = repo.branch("b2", &commit2, false).unwrap();
+
+        let refs = [b1.get(), b2.get()];
+        let sum = Sum::create(repo, "my-sum", refs.into_iter(), Some(merge_commit)).unwrap();
+        assert_eq!(sum.name(), "my-sum");
+
+        let loaded = load(repo, "my-sum").unwrap();
+        if let GitHierarchy::Sum(loaded_sum) = loaded {
+            assert_eq!(loaded_sum.name(), "my-sum");
+            assert_eq!(GitHierarchy::Sum(loaded_sum).node_identity(), "my-sum");
+        } else {
+            panic!("Expected GitHierarchy::Sum");
+        }
+
+        let sum_list: Vec<String> = sums(repo).collect();
+        assert!(sum_list.contains(&"my-sum".to_string()));
+    }
+
+    #[test]
+    fn test_node_expander_name_variant() {
+        let gh_name = GitHierarchy::Name("custom-name".to_string());
+        assert_eq!(gh_name.node_identity(), "custom-name");
+    }
+}
