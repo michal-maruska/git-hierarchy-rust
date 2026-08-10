@@ -335,6 +335,7 @@ fn rebase_node<'repo>(
             rebase_segment(repo, segment)
         }
         GitHierarchy::Sum(sum) => {
+            let my_span = span!(Level::INFO, "sum", name = sum.name());
             remerge_sum(repo, sum, object_map)
         }
     }
