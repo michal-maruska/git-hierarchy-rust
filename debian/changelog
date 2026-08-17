@@ -1,3 +1,13 @@
+git-hierarchy (0.1.0-3) unstable; urgency=medium
+
+  [ google-labs-jules[bot] ]
+  * Remove nightly Rust features to support stable cargo and Debian packaging
+
+  [ Michal Maruska ]
+  * deb: build-dep on ssl, and pkg-config
+
+ -- Michal Maruska <mmaruska@gmail.com>  Mon, 17 Aug 2026 16:00:16 +0200
+
 git-hierarchy (0.1.0-2) unstable; urgency=medium
 
   * ci: create debian pkg on tag
