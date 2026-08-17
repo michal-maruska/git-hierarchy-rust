@@ -6,13 +6,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Ensure nightly toolchain if needed by nightly features in lib.rs
 CARGO_CMD="cargo"
-if cargo --version 2>&1 | grep -q -i "nightly"; then
-    CARGO_CMD="cargo"
-elif command -v rustup &>/dev/null && rustup toolchain list | grep -q "nightly"; then
-    CARGO_CMD="cargo +nightly"
-fi
 
 echo "Building release binaries with $CARGO_CMD..."
 $CARGO_CMD build --release

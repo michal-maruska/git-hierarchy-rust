@@ -162,7 +162,7 @@ pub fn upstream_of<'repo>(repository: &'repo Repository, branch: &Branch<'repo>)
     let upstream = branch.upstream().ok()?;
 
     let upstream_name = upstream.name().unwrap().unwrap();
-    let [rem, branch_name]= upstream_name.split('/').take(2).next_chunk().unwrap();
+    let (rem, branch_name) = upstream_name.split_once('/')?;
 
     let remote = repository.find_remote(rem).ok()?;
     // we have to drop branch_name, before ....returning .... @upstream ... because it's moving out.
@@ -273,4 +273,3 @@ mod tests {
         assert_eq!(found2, Some(0));
     }
 }
-
