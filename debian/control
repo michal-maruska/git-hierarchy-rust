@@ -2,7 +2,7 @@ Source: git-hierarchy
 Section: utils
 Priority: optional
 Maintainer: Michal Maruska <mmaruska@gmail.com>
-Build-Depends: debhelper-compat (= 13), cargo, rustc
+Build-Depends: debhelper-compat (= 13), cargo, rustc, libssl-dev, pkg-config
 Standards-Version: 4.6.2
 Homepage: https://github.com/MichalMaruska/git-hierarchy-rust
 Vcs-Git: https://github.com/MichalMaruska/git-hierarchy-rust.git
