@@ -4,15 +4,7 @@
 	dh $@
 
 override_dh_auto_build:
-	cargo build --release
+	cargo +nightly build --release || cargo build --release
 
 override_dh_auto_test:
-	cargo test --release
-
-override_dh_auto_install:
-	install -d debian/git-hierarchy/usr/bin
-	install -m 0755 target/release/git-walk-down debian/git-hierarchy/usr/bin/
-	install -m 0755 target/release/git-rebase-poset debian/git-hierarchy/usr/bin/
-	install -m 0755 target/release/git-rebase-segment debian/git-hierarchy/usr/bin/
-	install -m 0755 target/release/git-segment debian/git-hierarchy/usr/bin/
-	install -m 0755 target/release/git-sum debian/git-hierarchy/usr/bin/
+	cargo +nightly test --release || cargo test --release

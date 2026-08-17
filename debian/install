@@ -1,5 +1,5 @@
-usr/bin/git-walk-down
-usr/bin/git-rebase-poset
-usr/bin/git-rebase-segment
-usr/bin/git-segment
-usr/bin/git-sum
+target/release/git-walk-down usr/bin/
+target/release/git-rebase-poset usr/bin/
+target/release/git-rebase-segment usr/bin/
+target/release/git-segment usr/bin/
+target/release/git-sum usr/bin/
