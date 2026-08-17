@@ -14,9 +14,7 @@ use crate::graph::discover::NodeExpander;
 
 use crate::utils::{concatenate, extract_name};
 
-use std::ops::Try;
-use std::ops::ControlFlow;
-use crate::collected::{try_collect};
+use crate::collected::{try_collect, Collected};
 
 use git2::{Commit, Oid, Reference, Repository, Revwalk, Sort, Error};
 
@@ -288,11 +286,10 @@ where 'repo : 'a {
                     "start")
             }));
 
-    match summands.branch() {
-        ControlFlow::Continue(v) => Ok(v),
-        ControlFlow::Break(res) => {
-            // res cannot be Infallible
-            for mut reference in res.unwrap_err()  {
+    match summands {
+        Collected::Ok(v) => Ok(v),
+        Collected::Fail(res) => {
+            for mut reference in res {
                 // should we ignore these failures?
                 reference.delete()?;
             }
