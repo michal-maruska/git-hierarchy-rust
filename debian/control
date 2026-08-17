@@ -1,0 +1,16 @@
+Source: git-hierarchy
+Section: utils
+Priority: optional
+Maintainer: Michal Maruska <mmaruska@gmail.com>
+Build-Depends: debhelper-compat (= 13), cargo, rustc
+Standards-Version: 4.6.2
+Homepage: https://github.com/MichalMaruska/git-hierarchy-rust
+Vcs-Git: https://github.com/MichalMaruska/git-hierarchy-rust.git
+
+Package: git-hierarchy
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, git
+Description: Tool to rebase a hierarchy of local development commits
+ git-hierarchy provides a suite of tools (git-walk-down, git-rebase-poset,
+ git-rebase-segment, git-segment, git-sum) to manipulate and rebase a
+ hierarchy of local git development commits.

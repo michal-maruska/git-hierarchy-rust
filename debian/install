@@ -1,0 +1,5 @@
+usr/bin/git-walk-down
+usr/bin/git-rebase-poset
+usr/bin/git-rebase-segment
+usr/bin/git-segment
+usr/bin/git-sum
