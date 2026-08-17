@@ -1,0 +1,5 @@
+git-hierarchy (0.1.0-1) unstable; urgency=medium
+
+  * Initial release of git-hierarchy Debian package.
+
+ -- Michal Maruska <mmaruska@gmail.com>  Mon, 17 Feb 2025 00:00:00 +0000

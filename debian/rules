@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	cargo +nightly build --release || cargo build --release
+
+override_dh_auto_test:
+	cargo +nightly test --release || cargo test --release
