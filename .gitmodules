@@ -1,4 +1,4 @@
 [submodule "submodules/discover-graph"]
 	path = submodules/discover-graph
-	url = git@github.com:MichalMaruska/discover-graph.git
+	url = git@github.com:michal-maruska/discover-graph.git
 	branch = main
