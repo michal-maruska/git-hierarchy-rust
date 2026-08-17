@@ -1,3 +1,9 @@
+git-hierarchy (0.1.0-2) unstable; urgency=medium
+
+  * ci: create debian pkg on tag
+
+ -- Michal Maruska <mmaruska@gmail.com>  Mon, 17 Aug 2026 14:05:28 +0200
+
 git-hierarchy (0.1.0-1) unstable; urgency=medium
 
   * Initial release of git-hierarchy Debian package.
