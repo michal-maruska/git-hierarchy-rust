@@ -258,10 +258,9 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) {
 
         let summands_refs = summands_gh.iter().collect();
 
-        check_summands(repository,
-            &sum,
-            &sum.parent_commits(),
-            &summands_refs).expect("Sum verification should finish");
+        if let Err(e) = check_summands(repository, &sum, &sum.parent_commits(), &summands_refs) {
+            eprint!("Sum is not up-to-date");
+        }
 
         // prune non-existings summands ??? why?
         // fn show_prune_definition(){unimplemented!()}
