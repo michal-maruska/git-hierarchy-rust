@@ -15,7 +15,6 @@ use tracing::debug;
 // about ... Description from Cargo.toml
 #[command(version, long_about = None)]
 #[command(subcommand_negates_reqs = true)]
-#[command(args_conflicts_with_subcommands = true)] // positional arguments
 // ^^ this means that Factory produces command, and then ^^ those are called on it?
 struct Cli {
 
