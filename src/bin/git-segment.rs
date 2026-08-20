@@ -304,9 +304,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let seg = define(&repository, &args).expect("failed to define new segment");
 
                 // try to switch
-                println!("should checkout now");
-                repository.set_head(seg.reference.borrow().name().unwrap()).expect("should set HEAD");
-                repository.checkout_head(None).expect("should checkout");
+                let name = seg.reference.borrow().name().unwrap().to_string();
+                println!("should checkout now {}", name);
+                repository.set_head(&name).expect("should set HEAD");
+                repository.checkout_head(Some(CheckoutBuilder::new().safe())).expect("should checkout");
             }
             Commands::Define(args) => {
                 define(&repository, &args).expect("failed to define new segment");
