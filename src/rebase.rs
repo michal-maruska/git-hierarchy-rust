@@ -98,9 +98,9 @@ fn record_processed_commit(repository: &'_ Repository, oid: Oid, applied: bool) 
     debug!("Update persistent state: {:?}", path);
 
     let mut file = OpenOptions::new()
+        .create(true)
         .append(true)
-        .open(path)
-        .unwrap();
+        .open(path)?;
 
     let marker =
         if applied {
@@ -285,7 +285,7 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
     if false {
         if !git_run(
             repository,
-            &["cherry-pick", segment.git_revisions().as_str()],
+            &["cherry-pick", "--", segment.git_revisions().as_str()],
         )
             .is_ok_and(|x| x.success())
         {

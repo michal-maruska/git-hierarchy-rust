@@ -121,6 +121,9 @@ impl<'repo> Segment<'repo> {
                   start: Oid,
                   head: Oid)
                   -> Result<Segment<'repo>, Error> {
+        if name.contains("..") || name.starts_with('/') || name.contains("//") {
+            return Err(Error::from_str("invalid segment name: contains path traversal sequence"));
+        }
         info!("create segment: {} base {}", name, base.name().unwrap());
         // .expect("should be a new reference");
         let s = repository.reference(&concatenate(SEGMENT_START_PATTERN, name),
@@ -335,6 +338,9 @@ impl<'repo> Sum<'repo> {
     ) -> Result<Sum<'repo>, Error>
         where 'repo : 'a
     {
+        if name.contains("..") || name.starts_with('/') || name.contains("//") {
+            return Err(Error::from_str("invalid sum name: contains path traversal sequence"));
+        }
         info!("create sum: {}", name);
         let summands = create_summand_refs(repository, name, 0, components)?;
 
@@ -665,5 +671,27 @@ mod tests {
     fn test_node_expander_name_variant() {
         let gh_name = GitHierarchy::Name("custom-name".to_string());
         assert_eq!(gh_name.node_identity(), "custom-name");
+    }
+
+    #[test]
+    fn test_reject_path_traversal_names() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+        let base_branch = repo.branch("main", &commit, false).unwrap();
+
+        let err_seg = Segment::create(
+            repo,
+            "../bad_segment",
+            base_branch.get(),
+            commit.id(),
+            commit.id(),
+        );
+        assert!(err_seg.is_err());
+
+        let refs = [base_branch.get()];
+        let err_sum = Sum::create(repo, "../bad_sum", refs.into_iter(), Some(commit));
+        assert!(err_sum.is_err());
     }
 }

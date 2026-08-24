@@ -153,6 +153,7 @@ fn remerge_sum<'repo>(
                 "patience",
                 "--strategy-option",
                 "ignore-space-change",
+                "--",
             ];
             cmdline.extend(graphed_summands.iter().map(|s| s.node_identity()));
 
