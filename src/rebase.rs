@@ -98,9 +98,9 @@ fn record_processed_commit(repository: &'_ Repository, oid: Oid, applied: bool) 
     debug!("Update persistent state: {:?}", path);
 
     let mut file = OpenOptions::new()
+        .create(true)
         .append(true)
-        .open(path)
-        .unwrap();
+        .open(path)?;
 
     let marker =
         if applied {
@@ -733,6 +733,22 @@ mod tests {
         create_marker_file(repo, "test-content").unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert_eq!(content, "test-content");
+    }
+
+    #[test]
+    fn test_record_processed_commit() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = crate::test_utils::create_commit(repo, "test commit", &[]);
+        create_marker_file(repo, "segment_name\n").unwrap();
+
+        record_processed_commit(repo, commit.id(), true).unwrap();
+
+        let path = marker_filename(repo);
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains(&commit.id().to_string()));
+        assert!(content.contains("1"));
     }
 }
 
