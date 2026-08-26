@@ -657,7 +657,7 @@ pub fn check_sum<'repo>(
     if count <= 1 {
         warn!("not a merge: {}, only {} parent commits", sum.name(), count);
         return Err(RebaseError::WrongHierarchy(sum.name().to_owned()));
-    };
+    }
 
     // each of the summands has relationship to a parent commit.
     let summands = sum.summands(repository);
