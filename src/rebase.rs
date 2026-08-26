@@ -649,7 +649,6 @@ pub fn check_sum<'repo>(
     sum: &Sum<'repo>,
     object_map: &HashMap<String, GitHierarchy<'repo>>,
 ) -> Result<(), RebaseError> {
-
     let count = sum.summand_count();
     if count <= 1 {
         warn!("not a merge: {}, only {} parent commits", sum.name(), count);
