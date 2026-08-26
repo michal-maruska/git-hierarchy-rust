@@ -121,9 +121,6 @@ impl<'repo> Segment<'repo> {
                   start: Oid,
                   head: Oid)
                   -> Result<Segment<'repo>, Error> {
-        if !git2::Branch::name_is_valid(name).unwrap_or(false) {
-            return Err(Error::from_str("invalid segment name: must be a valid git branch name"));
-        }
         info!("create segment: {} base {}", name, base.name().unwrap());
         // .expect("should be a new reference");
         let s = repository.reference(&concatenate(SEGMENT_START_PATTERN, name),
@@ -338,9 +335,6 @@ impl<'repo> Sum<'repo> {
     ) -> Result<Sum<'repo>, Error>
         where 'repo : 'a
     {
-        if !git2::Branch::name_is_valid(name).unwrap_or(false) {
-            return Err(Error::from_str("invalid sum name: must be a valid git branch name"));
-        }
         info!("create sum: {}", name);
         let summands = create_summand_refs(repository, name, 0, components)?;
 
@@ -671,36 +665,5 @@ mod tests {
     fn test_node_expander_name_variant() {
         let gh_name = GitHierarchy::Name("custom-name".to_string());
         assert_eq!(gh_name.node_identity(), "custom-name");
-    }
-
-    #[test]
-    fn test_reject_invalid_branch_names() {
-        let test_repo = TestRepo::new();
-        let repo = &test_repo.repo;
-
-        let commit = create_commit(repo, "commit 1", &[]);
-        let base_branch = repo.branch("main", &commit, false).unwrap();
-
-        let err_seg = Segment::create(
-            repo,
-            "../bad_segment",
-            base_branch.get(),
-            commit.id(),
-            commit.id(),
-        );
-        assert!(err_seg.is_err());
-
-        let err_seg2 = Segment::create(
-            repo,
-            "bad..segment",
-            base_branch.get(),
-            commit.id(),
-            commit.id(),
-        );
-        assert!(err_seg2.is_err());
-
-        let refs = [base_branch.get()];
-        let err_sum = Sum::create(repo, "../bad_sum", refs.into_iter(), Some(commit));
-        assert!(err_sum.is_err());
     }
 }

@@ -153,7 +153,6 @@ fn remerge_sum<'repo>(
                 "patience",
                 "--strategy-option",
                 "ignore-space-change",
-                "--",
             ];
             cmdline.extend(graphed_summands.iter().map(|s| s.node_identity()));
 
@@ -336,7 +335,7 @@ fn rebase_node<'repo>(
             rebase_segment(repo, segment)
         }
         GitHierarchy::Sum(sum) => {
-            let my_span = span!(Level::INFO, "sum", name = sum.name());
+            let _my_span = span!(Level::INFO, "sum", name = sum.name());
             remerge_sum(repo, sum, object_map)
         }
     }

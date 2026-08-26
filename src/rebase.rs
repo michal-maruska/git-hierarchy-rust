@@ -98,9 +98,9 @@ fn record_processed_commit(repository: &'_ Repository, oid: Oid, applied: bool) 
     debug!("Update persistent state: {:?}", path);
 
     let mut file = OpenOptions::new()
-        .create(true)
         .append(true)
-        .open(path)?;
+        .open(path)
+        .unwrap();
 
     let marker =
         if applied {
@@ -285,7 +285,7 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
     if false {
         if !git_run(
             repository,
-            &["cherry-pick", "--", segment.git_revisions().as_str()],
+            &["cherry-pick", segment.git_revisions().as_str()],
         )
             .is_ok_and(|x| x.success())
         {
@@ -649,14 +649,11 @@ pub fn check_sum<'repo>(
     sum: &Sum<'repo>,
     object_map: &HashMap<String, GitHierarchy<'repo>>,
 ) -> Result<(), RebaseError> {
-
-    // terrible:
-    // !i>2 in Rust  means ~i>2 in C
-    // https://users.rust-lang.org/t/why-does-rust-use-the-same-symbol-for-bitwise-not-or-inverse-and-logical-negation/117337/2
-    if let count = sum.summand_count() && count <= 1 {
+    let count = sum.summand_count();
+    if count <= 1 {
         warn!("not a merge: {}, only {} parent commits", sum.name(), count);
         return Err(RebaseError::WrongHierarchy(sum.name().to_owned()));
-    };
+    }
 
     // each of the summands has relationship to a parent commit.
     let summands = sum.summands(repository);
@@ -732,6 +729,22 @@ mod tests {
         create_marker_file(repo, "test-content").unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert_eq!(content, "test-content");
+    }
+
+    #[test]
+    fn test_record_processed_commit() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = crate::test_utils::create_commit(repo, "test commit", &[]);
+        create_marker_file(repo, "segment_name\n").unwrap();
+
+        record_processed_commit(repo, commit.id(), true).unwrap();
+
+        let path = marker_filename(repo);
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains(&commit.id().to_string()));
+        assert!(content.contains("1"));
     }
 }
 
