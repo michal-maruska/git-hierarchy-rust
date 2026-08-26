@@ -285,7 +285,7 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
     if false {
         if !git_run(
             repository,
-            &["cherry-pick", segment.git_revisions().as_str()],
+            &["cherry-pick", "--", segment.git_revisions().as_str()],
         )
             .is_ok_and(|x| x.success())
         {
