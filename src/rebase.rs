@@ -653,10 +653,11 @@ pub fn check_sum<'repo>(
     // terrible:
     // !i>2 in Rust  means ~i>2 in C
     // https://users.rust-lang.org/t/why-does-rust-use-the-same-symbol-for-bitwise-not-or-inverse-and-logical-negation/117337/2
-    if let count = sum.summand_count() && count <= 1 {
+    let count = sum.summand_count();
+    if count <= 1 {
         warn!("not a merge: {}, only {} parent commits", sum.name(), count);
         return Err(RebaseError::WrongHierarchy(sum.name().to_owned()));
-    };
+    }
 
     // each of the summands has relationship to a parent commit.
     let summands = sum.summands(repository);
