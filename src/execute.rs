@@ -19,8 +19,8 @@ pub fn git_run(repository: &Repository, cmd_line: &[&str]) -> Result<ExitStatus,
     debug!("must cd into {}", repository.workdir().unwrap().display());
     warn!("git-run: {}", cmd_line.join(" "));
 
-    let child = command.spawn().expect("git command failed to start");
-    let output = child.wait_with_output().expect("Failed to wait on git");
+    let child = command.spawn().map_err(Error::ProcessError)?;
+    let output = child.wait_with_output().map_err(Error::ProcessError)?;
 
     dbg!(output.status);
     Ok(output.status)
