@@ -18,16 +18,19 @@ pub fn git_same_ref(
     reference: &Reference<'_>,
     next: &Reference<'_>,
 ) -> bool {
-    fn sha<'a>(_repository: &'a Repository, reference: &Reference<'a>) -> Oid {
-        let direct = reference.resolve().unwrap();
-        let oid = direct.target().unwrap();
+    fn sha<'a>(_repository: &'a Repository, reference: &Reference<'a>) -> Option<Oid> {
+        let direct = reference.resolve().ok()?;
+        let oid = direct.peel_to_commit().ok()?.id();
         debug!("git_same_ref: {:?} {:?}",
-               reference.name().unwrap(),
+               reference.name().unwrap_or(""),
                oid);
-        oid
+        Some(oid)
     }
 
-    sha(repository, reference) == sha(repository, next)
+    match (sha(repository, reference), sha(repository, next)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
 }
 
 // ancestor <---is parent-- ........ descendant

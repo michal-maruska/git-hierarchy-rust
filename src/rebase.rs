@@ -496,9 +496,10 @@ fn rebase_empty_segment<'repo>(
 pub fn check_segment(repository: &Repository, segment: &Segment<'_>) -> Result<(), RebaseError>
 {
     // no merge commits
+    let target_oid = segment.reference.borrow().peel_to_commit()?.id();
     if ! is_linear_ancestor(repository,
                             segment.start(),
-                            segment.reference.borrow().target().unwrap())? {
+                            target_oid)? {
         warn!("check_segment failed for {}", segment.name());
         return Err(RebaseError::WrongHierarchy(segment.name().to_owned()));
     }
@@ -525,8 +526,13 @@ fn ref_related_to(repo: &Repository,
     // take 1 1
     // if ancestor, or in reflog.
 
+    let target_oid = match branch.peel_to_commit() {
+        Ok(c) => c.id(),
+        Err(_) => return false,
+    };
+
     // ancestor
-    if is_linear_ancestor(repo, commit, branch.target().unwrap()).unwrap() {
+    if is_linear_ancestor(repo, commit, target_oid).unwrap_or(false) {
         true
     } else {
         // reflog

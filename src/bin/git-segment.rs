@@ -137,8 +137,7 @@ fn resolve_user_commit(repository: &Repository, input: &str) -> Option<Oid> {
             None
         }
     } else if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
-        // refname_to_id
-        Some(reference.target().unwrap())
+        reference.peel_to_commit().map(|c| c.id()).ok()
     } else {
         debug!("couldn't find reference {}", input);
         None
@@ -149,20 +148,22 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
 {
     let base = repository.resolve_reference_from_short_name(&args.base)?;
 
+    let base_commit_oid = base.peel_to_commit()?.id();
+
     // no: either ref or sha
     let start = if let Some(s) = &args.start {
-        // note: as_ref().unwrap()  vs unwrap().as_ref() ...
-        resolve_user_commit(repository, s).unwrap()
+        resolve_user_commit(repository, s)
+            .ok_or_else(|| git2::Error::from_str(&format!("invalid start commit or reference: {}", s)))?
     } else {
-        base.target().unwrap()
+        base_commit_oid
     };
 
-    let head =
-        args.head.as_ref().map_or(
-            start,
-            |x|
-            resolve_user_commit(repository, x).expect("input must be valid")
-        );
+    let head = if let Some(x) = &args.head {
+        resolve_user_commit(repository, x)
+            .ok_or_else(|| git2::Error::from_str(&format!("invalid head commit or reference: {}", x)))?
+    } else {
+        start
+    };
 
     let res = Segment::create(repository, &args.segment_name, &base, start, head);
 
