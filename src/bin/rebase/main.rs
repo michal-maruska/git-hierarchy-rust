@@ -471,13 +471,23 @@ fn main() {
 
     debug!("root is {}", root.node_identity());
 
-    // todo: I must rewrite ignore to full ref names!
+    if !cli.ignore.is_empty() {
+        for e in cli.ignore.iter_mut() {
+            if let Ok(r) = repository.resolve_reference_from_short_name(e) {
+                if let Some(n) = r.name() {
+                    *e = n.to_string();
+                }
+            }
+        }
+    }
+
     if !cli.skip.is_empty() {
-        // canonicalize the user-input:
         for e in cli.skip.iter_mut() {
-            // rewrite String:
-            e.replace_range(..e.len(),
-                            repository.resolve_reference_from_short_name(e).unwrap().name().unwrap());
+            if let Ok(r) = repository.resolve_reference_from_short_name(e) {
+                if let Some(n) = r.name() {
+                    *e = n.to_string();
+                }
+            }
         }
     }
 
