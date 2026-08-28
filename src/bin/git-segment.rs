@@ -8,7 +8,6 @@ use git_hierarchy::git_hierarchy::{GitHierarchy,Segment,segments,load,
                                    segment_fmt,
 };
 
-#[allow(unused_imports)]
 use tracing::debug;
 
 /// Operate on segments or 1 segment
@@ -128,14 +127,21 @@ struct DefineArgs {
     head: Option<String>,
 }
 
-fn resolve_user_commit(repository: &Repository, input: &str) -> Result<Oid, git2::Error> {
+fn resolve_user_commit(repository: &Repository, input: &str) -> Option<Oid> {
+    // either:
     if let Ok(sha) = Oid::from_str(input) {
-        let commit = repository.find_commit(sha)?;
-        Ok(commit.id())
+        if let Ok(commit) = repository.find_commit(sha) {
+            Some(commit.id())
+        } else {
+            debug!("couldn't find the commit {}", sha);
+            None
+        }
+    } else if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
+        // refname_to_id
+        Some(reference.target().unwrap())
     } else {
-        let reference = repository.resolve_reference_from_short_name(input)?;
-        let commit = reference.peel_to_commit()?;
-        Ok(commit.id())
+        debug!("couldn't find reference {}", input);
+        None
     }
 }
 
@@ -145,16 +151,18 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
 
     // no: either ref or sha
     let start = if let Some(s) = &args.start {
-        resolve_user_commit(repository, s)?
+        // note: as_ref().unwrap()  vs unwrap().as_ref() ...
+        resolve_user_commit(repository, s).unwrap()
     } else {
-        base.peel_to_commit()?.id()
+        base.target().unwrap()
     };
 
-    let head = if let Some(x) = &args.head {
-        resolve_user_commit(repository, x)?
-    } else {
-        start
-    };
+    let head =
+        args.head.as_ref().map_or(
+            start,
+            |x|
+            resolve_user_commit(repository, x).expect("input must be valid")
+        );
 
     let res = Segment::create(repository, &args.segment_name, &base, start, head);
 
@@ -269,7 +277,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Commands::Restart(args) => {
                 let gh = git_hierarchy::git_hierarchy::load(&repository, &args.segment_name).unwrap();
                 if let GitHierarchy::Segment(segment) = gh {
-                    let oid = resolve_user_commit(&repository, args.commit.as_ref())?;
+                    let oid =
+                        resolve_user_commit(&repository,
+                                            args.commit.as_ref())
+                        .unwrap();
                     println!("restart from {} {}", args.commit, oid);
                     segment.set_start(&repository, oid);
                 }

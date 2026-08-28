@@ -17,20 +17,17 @@ pub fn git_same_ref(
     repository: &Repository,
     reference: &Reference<'_>,
     next: &Reference<'_>,
-) -> bool {
-    fn sha<'a>(_repository: &'a Repository, reference: &Reference<'a>) -> Option<Oid> {
-        let direct = reference.resolve().ok()?;
-        let oid = direct.peel_to_commit().ok()?.id();
+) -> Result<bool, Error> {
+    fn sha<'a>(_repository: &'a Repository, reference: &Reference<'a>) -> Result<Oid, Error> {
+        let direct = reference.resolve()?;
+        let oid = direct.peel_to_commit()?.id();
         debug!("git_same_ref: {:?} {:?}",
                reference.name().unwrap_or(""),
                oid);
-        Some(oid)
+        Ok(oid)
     }
 
-    match (sha(repository, reference), sha(repository, next)) {
-        (Some(a), Some(b)) => a == b,
-        _ => false,
-    }
+    Ok(sha(repository, reference)? == sha(repository, next)?)
 }
 
 // ancestor <---is parent-- ........ descendant
@@ -203,8 +200,8 @@ mod tests {
         let b2 = repo.branch("b2", &commit1, false).unwrap();
         let b3 = repo.branch("b3", &commit2, false).unwrap();
 
-        assert!(git_same_ref(repo, b1.get(), b2.get()));
-        assert!(!git_same_ref(repo, b1.get(), b3.get()));
+        assert!(git_same_ref(repo, b1.get(), b2.get()).unwrap());
+        assert!(!git_same_ref(repo, b1.get(), b3.get()).unwrap());
     }
 
     #[test]

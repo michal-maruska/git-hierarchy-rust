@@ -284,7 +284,7 @@ fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Resu
         let mut branch = to_branch(repository, reference);
         if let Some((mut remote, _remote_branch, remote_branch_name)) = upstream_of(repository, &branch) {
 
-            if git_same_ref(repository, reference, branch.get()) {
+            if git_same_ref(repository, reference, branch.get()).unwrap_or(false) {
                 // we might be behind?
                 debug!("in sync, so let's fetch & update");
             } else {

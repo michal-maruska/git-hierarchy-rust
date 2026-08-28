@@ -496,10 +496,9 @@ fn rebase_empty_segment<'repo>(
 pub fn check_segment(repository: &Repository, segment: &Segment<'_>) -> Result<(), RebaseError>
 {
     // no merge commits
-    let target_oid = segment.reference.borrow().peel_to_commit()?.id();
     if ! is_linear_ancestor(repository,
                             segment.start(),
-                            target_oid)? {
+                            segment.reference.borrow().target().unwrap())? {
         warn!("check_segment failed for {}", segment.name());
         return Err(RebaseError::WrongHierarchy(segment.name().to_owned()));
     }
@@ -521,22 +520,20 @@ pub fn check_segment(repository: &Repository, segment: &Segment<'_>) -> Result<(
 /// more heuristics, more permissive
 fn ref_related_to(repo: &Repository,
     branch: &Reference<'_>,
-    commit: Oid) -> Result<bool, git2::Error> {      // Commit<'_>
+    commit: Oid) -> bool {      // Commit<'_>
     // if both:
     // take 1 1
     // if ancestor, or in reflog.
 
-    let target_oid = branch.peel_to_commit()?.id();
-
     // ancestor
-    if is_linear_ancestor(repo, commit, target_oid)? {
-        Ok(true)
+    if is_linear_ancestor(repo, commit, branch.target().unwrap()).unwrap() {
+        true
     } else {
         // reflog
         if find_commit_in_reflog(repo, branch.name().expect("should have a name"), commit).is_ok_and(|x| x.is_some()){
-            return Ok(true);
+            return true;
         }
-        Ok(false)
+        false
     }
 }
 
@@ -551,7 +548,7 @@ fn match_commits_to_references<'repo>( //  A,B
     let mut unmatched_a = Vec::new();
 
     for a in a_vec {
-        match b_vec.iter().position(|b| ref_related_to(repo, &a, *b).unwrap_or(false)) {
+        match b_vec.iter().position(|b| ref_related_to(repo, &a, *b)) {
             Some(i) => {
                 debug!("found history relation! {}", a.name().unwrap());
                 let b = b_vec.swap_remove(i);

@@ -172,7 +172,7 @@ impl<'repo> Segment<'repo> {
     }
 
     pub fn empty(&self, repository: &Repository) -> bool {
-        git_same_ref(repository, &self.reference.borrow(), &self._start)
+        git_same_ref(repository, &self.reference.borrow(), &self._start).unwrap_or(false)
     }
 
     pub fn git_revisions(&self) -> String {
