@@ -143,13 +143,11 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
 {
     let base = repository.resolve_reference_from_short_name(&args.base)?;
 
-    let base_commit_oid = base.peel_to_commit()?.id();
-
     // no: either ref or sha
     let start = if let Some(s) = &args.start {
         resolve_user_commit(repository, s)?
     } else {
-        base_commit_oid
+        base.peel_to_commit()?.id()
     };
 
     let head = if let Some(x) = &args.head {
