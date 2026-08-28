@@ -171,8 +171,8 @@ impl<'repo> Segment<'repo> {
             .borrow().peel_to_commit().unwrap().id() == self._start.target().unwrap()
     }
 
-    pub fn empty(&self, repository: &Repository) -> bool {
-        git_same_ref(repository, &self.reference.borrow(), &self._start).unwrap_or(false)
+    pub fn empty(&self, repository: &Repository) -> Result<bool, Error> {
+        git_same_ref(repository, &self.reference.borrow(), &self._start)
     }
 
     pub fn git_revisions(&self) -> String {
@@ -608,7 +608,7 @@ mod tests {
         assert_eq!(segment.name(), "feature");
         assert_eq!(segment.start(), commit1.id());
         assert!(segment.uptodate(repo));
-        assert!(!segment.empty(repo));
+        assert!(!segment.empty(repo).unwrap());
         assert_eq!(segment.git_revisions(), "refs/start/feature..refs/heads/feature");
 
         let loaded = load(repo, "feature").unwrap();

@@ -246,7 +246,7 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
 
     let new_start = segment.base(repository).peel_to_commit().unwrap();
 
-    if segment.empty(repository) {
+    if segment.empty(repository)? {
         return rebase_empty_segment(segment, repository);
     }
 
