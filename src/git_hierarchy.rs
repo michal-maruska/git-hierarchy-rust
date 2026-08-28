@@ -121,7 +121,7 @@ impl<'repo> Segment<'repo> {
                   start: Oid,
                   head: Oid)
                   -> Result<Segment<'repo>, Error> {
-        if !git2::Branch::name_is_valid(name)? {
+        if !git2::Branch::name_is_valid(name)? || name.starts_with('-') {
             return Err(Error::from_str("invalid segment name: must be a valid git branch name"));
         }
         info!("create segment: {} base {}", name, base.name().unwrap());
@@ -338,7 +338,7 @@ impl<'repo> Sum<'repo> {
     ) -> Result<Sum<'repo>, Error>
         where 'repo : 'a
     {
-        if !git2::Branch::name_is_valid(name)? {
+        if !git2::Branch::name_is_valid(name)? || name.starts_with('-') {
             return Err(Error::from_str("invalid sum name: must be a valid git branch name"));
         }
         info!("create sum: {}", name);
@@ -699,8 +699,20 @@ mod tests {
         );
         assert!(err_seg2.is_err());
 
+        let err_seg3 = Segment::create(
+            repo,
+            "-option_inject",
+            base_branch.get(),
+            commit.id(),
+            commit.id(),
+        );
+        assert!(err_seg3.is_err());
+
         let refs = [base_branch.get()];
-        let err_sum = Sum::create(repo, "../bad_sum", refs.into_iter(), Some(commit));
+        let err_sum = Sum::create(repo, "../bad_sum", refs.into_iter(), Some(commit.clone()));
         assert!(err_sum.is_err());
+
+        let err_sum2 = Sum::create(repo, "-option_sum", refs.into_iter(), Some(commit));
+        assert!(err_sum2.is_err());
     }
 }
