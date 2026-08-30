@@ -115,8 +115,8 @@ fn record_processed_commit(repository: &'_ Repository, oid: Oid, applied: bool) 
 }
 
 
-fn read_cherry_pick_head(repository: &'_ Repository) -> String {
-    fs::read_to_string(repository.commondir().join("CHERRY_PICK_HEAD")).unwrap()
+fn read_cherry_pick_head(repository: &'_ Repository) -> Result<String, io::Error> {
+    fs::read_to_string(repository.commondir().join("CHERRY_PICK_HEAD"))
 }
 
 /// Creates each commit during the rebase/cherry-picking: both in OK flow
@@ -380,22 +380,26 @@ pub fn segment_to_continue(repository: &Repository) -> Option<(String,Option<(St
 {
     let path = marker_filename(repository);
 
-    if ! fs::exists(&path).unwrap() {
+    if ! fs::exists(&path).unwrap_or(false) {
         // eprintln!
         debug!("marker file does not exist -- no segment is being rebased.");
         return None;
     }
 
-    let content: String = fs::read_to_string(path).unwrap(); // .... and the oid
+    let content: String = fs::read_to_string(path).ok()?;
     let mut lines = content.lines();
-    let segment_name = lines.next().unwrap().trim().to_owned();
+    let segment_name = lines.next()?.trim().to_owned();
+    if segment_name.is_empty() {
+        return None;
+    }
 
     // this can fail: if we failed on the last commit, at the moment of commit -- empty or whatever.
     match lines.next_back() {
         None =>
             Some((segment_name, None)),
         Some(oid) => {
-            let skip : usize = lines.next_back().unwrap().parse().expect("should be a number");
+            let skip_str = lines.next_back()?;
+            let skip: usize = skip_str.parse().ok()?;
             debug!("from file: continue on {}, after {:?}", segment_name, oid);
             Some((segment_name, Some((oid.to_owned(), skip))))
         }
@@ -416,7 +420,8 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
                 // read the CHERRY_PICK_HEAD
                 // todo: convert to step.step2...
                 // mmc: so this is the same as `oid' ?
-                let commit_id = Oid::from_str(read_cherry_pick_head(repository).as_str().trim()).unwrap();
+                let head_str = read_cherry_pick_head(repository).map_err(|_| RebaseError::Default)?;
+                let commit_id = Oid::from_str(head_str.trim()).map_err(|_| RebaseError::Default)?;
                 debug!("should continue the cherry-pick {:?}", commit_id);
 
                 let mut option =  StatusOptions::new();
@@ -749,6 +754,20 @@ mod tests {
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains(&commit.id().to_string()));
         assert!(content.contains("1"));
+    }
+
+    #[test]
+    fn test_segment_to_continue_corrupt_marker() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        assert!(segment_to_continue(repo).is_none());
+
+        create_marker_file(repo, "").unwrap();
+        assert!(segment_to_continue(repo).is_none());
+
+        create_marker_file(repo, "feature\nbad_oid\nnot_a_number\n").unwrap();
+        assert!(segment_to_continue(repo).is_none());
     }
 }
 
