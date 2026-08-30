@@ -114,6 +114,18 @@ pub struct Segment<'repo> {
 const REBASED_REFLOG: &str = "Rebased";
 
 impl<'repo> Segment<'repo> {
+    /// Checks if a branch/segment/sum name is valid for git and safe for CLI usage.
+    ///
+    /// Rejects names starting with '-' because leading dashes could be interpreted
+    /// as command-line flags/options when passed to external git commands,
+    /// leading to CLI option injection vulnerabilities.
+    pub fn name_is_valid(name: &str) -> Result<bool, Error> {
+        if name.starts_with('-') {
+            return Ok(false);
+        }
+        git2::Branch::name_is_valid(name)
+    }
+
     pub fn create(repository: &'repo Repository,
                   name: &str,
                   // why the same?
@@ -121,7 +133,7 @@ impl<'repo> Segment<'repo> {
                   start: Oid,
                   head: Oid)
                   -> Result<Segment<'repo>, Error> {
-        if !git2::Branch::name_is_valid(name)? || name.starts_with('-') {
+        if !Segment::name_is_valid(name)? {
             return Err(Error::from_str("invalid segment name: must be a valid git branch name"));
         }
         info!("create segment: {} base {}", name, base.name().unwrap());
@@ -338,7 +350,7 @@ impl<'repo> Sum<'repo> {
     ) -> Result<Sum<'repo>, Error>
         where 'repo : 'a
     {
-        if !git2::Branch::name_is_valid(name)? || name.starts_with('-') {
+        if !Segment::name_is_valid(name)? {
             return Err(Error::from_str("invalid sum name: must be a valid git branch name"));
         }
         info!("create sum: {}", name);
