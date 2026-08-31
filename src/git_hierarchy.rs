@@ -657,6 +657,11 @@ mod tests {
         assert!(!segment.empty(repo).unwrap());
         assert_eq!(segment.git_revisions(), "refs/start/feature..refs/heads/feature");
 
+        // Verify that references exist on successful creation
+        assert!(repo.find_reference("refs/start/feature").is_ok());
+        assert!(repo.find_reference("refs/base/feature").is_ok());
+        assert!(repo.find_reference("refs/heads/feature").is_ok());
+
         let loaded = load(repo, "feature").unwrap();
         if let GitHierarchy::Segment(loaded_seg) = loaded {
             assert_eq!(loaded_seg.name(), "feature");
@@ -700,6 +705,11 @@ mod tests {
         let refs = [b1.get(), b2.get()];
         let sum = Sum::create(repo, "my-sum", refs.into_iter(), Some(merge_commit)).unwrap();
         assert_eq!(sum.name(), "my-sum");
+
+        // Verify that summand references and branch reference exist on successful creation
+        assert!(repo.find_reference("refs/sums/my-sum/1").is_ok());
+        assert!(repo.find_reference("refs/sums/my-sum/2").is_ok());
+        assert!(repo.find_reference("refs/heads/my-sum").is_ok());
 
         let loaded = load(repo, "my-sum").unwrap();
         if let GitHierarchy::Sum(loaded_sum) = loaded {
