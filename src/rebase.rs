@@ -376,26 +376,31 @@ fn continue_segment_cherry_pick<'repo>(repository: &'repo Repository,
 
 /// loads the persistent state: the commit we last processed
 // This should be <>
-pub fn segment_to_continue(repository: &Repository) -> Option<(String,Option<(String,usize)>)>
+pub fn segment_to_continue(repository: &Repository) -> Result<Option<(String,Option<(String,usize)>)>, RebaseError>
 {
     let path = marker_filename(repository);
 
-    let content: String = fs::read_to_string(path).ok()?;
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+
     let mut lines = content.lines();
-    let segment_name = lines.next()?.trim().to_owned();
+    let segment_name = lines.next().ok_or_else(|| RebaseError::WrongHierarchy("empty marker file".to_string()))?.trim().to_owned();
     if segment_name.is_empty() {
-        return None;
+        return Err(RebaseError::WrongHierarchy("empty segment name in marker".to_string()));
     }
 
     // this can fail: if we failed on the last commit, at the moment of commit -- empty or whatever.
     match lines.next_back() {
         None =>
-            Some((segment_name, None)),
+            Ok(Some((segment_name, None))),
         Some(oid) => {
-            let skip_str = lines.next_back()?;
-            let skip: usize = skip_str.parse().ok()?;
+            let skip_str = lines.next_back().ok_or_else(|| RebaseError::WrongHierarchy("missing skip count in marker".to_string()))?;
+            let skip: usize = skip_str.parse().map_err(|_| RebaseError::WrongHierarchy(format!("invalid skip number '{}' in marker", skip_str)))?;
             debug!("from file: continue on {}, after {:?}", segment_name, oid);
-            Some((segment_name, Some((oid.to_owned(), skip))))
+            Ok(Some((segment_name, Some((oid.to_owned(), skip)))))
         }
     }
 }
@@ -405,7 +410,7 @@ pub fn segment_to_continue(repository: &Repository) -> Option<(String,Option<(St
 // he left mess, and ....on detached head. Unlike other tools.
 pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, RebaseError> {
     // todo: this might be the input:
-    let (segment_name, rest) = segment_to_continue(repository).unwrap();
+    let (segment_name, rest) = segment_to_continue(repository)?.ok_or(RebaseError::Default)?;
     let skip;
 
     if let GitHierarchy::Segment(segment) = load(repository, &segment_name).unwrap() {
@@ -755,13 +760,13 @@ mod tests {
         let test_repo = TestRepo::new();
         let repo = &test_repo.repo;
 
-        assert!(segment_to_continue(repo).is_none());
+        assert!(segment_to_continue(repo).unwrap().is_none());
 
         create_marker_file(repo, "").unwrap();
-        assert!(segment_to_continue(repo).is_none());
+        assert!(segment_to_continue(repo).is_err());
 
         create_marker_file(repo, "feature\nnot_a_number\nsome_oid\n").unwrap();
-        assert!(segment_to_continue(repo).is_none());
+        assert!(segment_to_continue(repo).is_err());
     }
 }
 
