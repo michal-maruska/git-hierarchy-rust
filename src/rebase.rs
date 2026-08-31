@@ -374,8 +374,14 @@ fn continue_segment_cherry_pick<'repo>(repository: &'repo Repository,
 }
 
 
-/// loads the persistent state: the commit we last processed
-// This should be <>
+/// Loads the persistent state: the commit we last processed.
+///
+/// Returns `Ok(Some((segment_name, Some((commit_id, skip)))))` where:
+/// - `segment_name`: the name of the segment being rebased.
+/// - `commit_id`: the OID of the commit last processed.
+/// - `skip`: count indicating whether to skip or resume from `commit_id`
+///   (for instance if merge conflicts occurred or applying the next commit failed).
+/// Returns `Ok(None)` if no rebase marker file exists.
 pub fn segment_to_continue(repository: &Repository) -> Result<Option<(String,Option<(String,usize)>)>, RebaseError>
 {
     let path = marker_filename(repository);
