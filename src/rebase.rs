@@ -387,9 +387,9 @@ pub fn segment_to_continue(repository: &Repository) -> Result<Option<(String,Opt
     };
 
     let mut lines = content.lines();
-    let segment_name = lines.next().ok_or_else(|| RebaseError::WrongHierarchy("empty marker file".to_string()))?.trim().to_owned();
+    let segment_name = lines.next().ok_or(RebaseError::WrongState)?.trim().to_owned();
     if segment_name.is_empty() {
-        return Err(RebaseError::WrongHierarchy("empty segment name in marker".to_string()));
+        return Err(RebaseError::WrongState);
     }
 
     // this can fail: if we failed on the last commit, at the moment of commit -- empty or whatever.
@@ -397,8 +397,8 @@ pub fn segment_to_continue(repository: &Repository) -> Result<Option<(String,Opt
         None =>
             Ok(Some((segment_name, None))),
         Some(oid) => {
-            let skip_str = lines.next_back().ok_or_else(|| RebaseError::WrongHierarchy("missing skip count in marker".to_string()))?;
-            let skip: usize = skip_str.parse().map_err(|_| RebaseError::WrongHierarchy(format!("invalid skip number '{}' in marker", skip_str)))?;
+            let skip_str = lines.next_back().ok_or(RebaseError::WrongState)?;
+            let skip: usize = skip_str.parse().map_err(|_| RebaseError::WrongState)?;
             debug!("from file: continue on {}, after {:?}", segment_name, oid);
             Ok(Some((segment_name, Some((oid.to_owned(), skip)))))
         }
