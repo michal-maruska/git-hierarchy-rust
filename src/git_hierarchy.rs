@@ -314,8 +314,8 @@ where 'repo : 'a {
                 return Err(Error::from_str("summand reference must have a name"));
             }
         };
-        let ref_name = format!("{}{}{}{}{}", SUM_SUMMAND_PATTERN, SEPARATOR, sum_name, SEPARATOR, counter_start + 1 + n);
-        match repository.reference_symbolic(&ref_name, name, false, "start") {
+        let summand_ref_name = format!("{}{}{}{}{}", SUM_SUMMAND_PATTERN, SEPARATOR, sum_name, SEPARATOR, counter_start + 1 + n);
+        match repository.reference_symbolic(&summand_ref_name, name, false, "start") {
             Ok(r) => v.push(r),
             Err(e) => {
                 for mut reference in v {
