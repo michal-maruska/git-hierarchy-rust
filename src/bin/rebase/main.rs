@@ -244,33 +244,24 @@ fn remerge_sum<'repo>(
 }
 
 /// Given full git-reference name /refs/remotes/xx/bb return xx and bb
-fn extract_remote_name(name: &str) -> (&str, &str) {
+fn extract_remote_name(name: &str) -> Option<(&str, &str)> {
     debug!("extract_remote_name: {:?}", name);
-    // let norm = Reference::normalize_name(reference.name().unwrap(), ReferenceFormat::NORMAL).unwrap();
-
-    let split_char = '/';
-
-    let (prefix, rest) = name.split_once(split_char).unwrap();
-    assert_eq!(prefix, "refs");
-    let (prefix, rest) = rest.split_once(split_char).unwrap();
-    assert_eq!(prefix, "remotes");
-
-    let (remote, branch) = rest.split_once(split_char).unwrap();
-    (remote, branch)
+    let rest = name.strip_prefix("refs/remotes/")?;
+    rest.split_once('/')
 }
 
 fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Result<(), Error> {
     // resolve what to fetch.
     if reference.is_remote() {
-        let (remote_name, branch) = extract_remote_name(reference.name().unwrap());
-        let mut remote = repository.find_remote(remote_name).unwrap();
-        debug!("fetching from remote {:?}: {:?}",
-               remote_name, // remote.name().unwrap(),
-               branch);
+        let name = reference.name().ok_or_else(|| Error::from_str("reference missing name"))?;
+        let (remote_name, branch) = extract_remote_name(name)
+            .ok_or_else(|| Error::from_str("invalid remote reference format"))?;
+        let mut remote = repository.find_remote(remote_name)?;
+        debug!("fetching from remote {:?}: {:?}", remote_name, branch);
 
         // FetchOptions, message
         if remote.fetch(&[branch], None, Some("part of poset-rebasing")).is_err() {
-            panic!("** Fetch failed");
+            return Err(Error::from_str("Fetch failed"));
         }
     } else if reference.is_branch() { // and we know it's not Segment/Sum, right?
         // the user has a reason to use local branch.
@@ -456,7 +447,7 @@ fn main() {
         rebase_segment_continue(&repository).unwrap();
     } else {
         // fixme: what if SUM?
-        if let Some((segment_name, _)) = segment_to_continue(&repository) {
+        if let Ok(Some((segment_name, _))) = segment_to_continue(&repository) {
             eprintln!("{} {}",Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
             exit(1);
         }
@@ -502,5 +493,25 @@ fn main() {
         exit(-1);
     } else {
         eprintln!("{}",Colorize::green("Done"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_remote_name() {
+        assert_eq!(
+            extract_remote_name("refs/remotes/origin/main"),
+            Some(("origin", "main"))
+        );
+        assert_eq!(
+            extract_remote_name("refs/remotes/upstream/feature/branch"),
+            Some(("upstream", "feature/branch"))
+        );
+        assert_eq!(extract_remote_name("refs/heads/main"), None);
+        assert_eq!(extract_remote_name("invalid_ref"), None);
+        assert_eq!(extract_remote_name("refs/remotes/no_slash"), None);
     }
 }
