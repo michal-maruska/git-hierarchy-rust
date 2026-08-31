@@ -253,7 +253,8 @@ fn extract_remote_name(name: &str) -> Option<(&str, &str)> {
 fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Result<(), Error> {
     // resolve what to fetch.
     if reference.is_remote() {
-        let (remote_name, branch) = extract_remote_name(reference.name().unwrap_or(""))
+        let name = reference.name().ok_or_else(|| Error::from_str("reference missing name"))?;
+        let (remote_name, branch) = extract_remote_name(name)
             .ok_or_else(|| Error::from_str("invalid remote reference format"))?;
         let mut remote = repository.find_remote(remote_name)?;
         debug!("fetching from remote {:?}: {:?}",
