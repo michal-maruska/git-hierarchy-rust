@@ -14,7 +14,6 @@ use crate::graph::discover::NodeExpander;
 
 use crate::utils::{concatenate, extract_name};
 
-use crate::collected::{try_collect, Collected};
 
 use git2::{Commit, Oid, Reference, Repository, Revwalk, Sort, Error};
 
@@ -53,7 +52,7 @@ fn start_name(name: &str) -> String {
 }
 
 fn sum_summands<'repo>(repository: &'repo Repository, name: &str) -> Vec<Reference<'repo>> {
-    let mut v = Vec::new();
+    let mut v: Vec<Reference<'repo>> = Vec::new();
 
     debug!("searching for sum {}", name);
     if let Ok(ref_iterator) =
@@ -136,24 +135,43 @@ impl<'repo> Segment<'repo> {
         if !Segment::name_is_valid(name)? {
             return Err(Error::from_str("invalid segment name: must be a valid git branch name"));
         }
-        info!("create segment: {} base {}", name, base.name().unwrap());
-        // .expect("should be a new reference");
-        let s = repository.reference(&concatenate(SEGMENT_START_PATTERN, name),
-                                         start,
-                                         false,
-                                         "start").expect("should be a new reference");
-        let b = repository.reference_symbolic(&concatenate(SEGMENT_BASE_PATTERN, name),
-                                              base.name().unwrap(),
-                                              false,
-                                              "new segment").expect("should be a new symbolic reference");
+        let base_name = base.name().ok_or_else(|| Error::from_str("base reference must have a name"))?;
+        info!("create segment: {} base {}", name, base_name);
 
-        // Branch::name_is_valid()
-        let branch = repository.reference(&concatenate("refs/heads/", name), // fixme:
-                                          head,
-                                          false, // don't overwrite existing.
-                                          "create").expect("should be a new reference");
-        // unimplemented!();
-        // I need to own the reference:
+        let mut s = repository.reference(
+            &concatenate(SEGMENT_START_PATTERN, name),
+            start,
+            false,
+            "start",
+        )?;
+
+        let mut b = match repository.reference_symbolic(
+            &concatenate(SEGMENT_BASE_PATTERN, name),
+            base_name,
+            false,
+            "new segment",
+        ) {
+            Ok(ref_sym) => ref_sym,
+            Err(e) => {
+                let _ = s.delete();
+                return Err(e);
+            }
+        };
+
+        let branch = match repository.reference(
+            &concatenate("refs/heads/", name),
+            head,
+            false,
+            "create",
+        ) {
+            Ok(br) => br,
+            Err(e) => {
+                let _ = s.delete();
+                let _ = b.delete();
+                return Err(e);
+            }
+        };
+
         Ok(Segment::new(branch, b, s))
     }
 
@@ -285,32 +303,29 @@ fn create_summand_refs<'repo,'a>(
     components: impl Iterator<Item = &'a Reference<'repo>>
 ) -> Result<Vec<Reference<'repo>>, Error>
 where 'repo : 'a {
-    let summands = try_collect(
-        components.enumerate().map(
-            |(n, s)| {
-                // this starts from 0
-                repository.reference_symbolic(
-                    &(SUM_SUMMAND_PATTERN.to_string()
-                      + SEPARATOR
-                      + sum_name
-                      + SEPARATOR
-                      + &(counter_start + 1 + n).to_string()),
-                    // mmc: this panics! todo: Avoid that!
-                    s.name().expect("should have name"),
-                    false,
-                    "start")
-            }));
-
-    match summands {
-        Collected::Ok(v) => Ok(v),
-        Collected::Fail(res) => {
-            for mut reference in res {
-                // should we ignore these failures?
-                reference.delete()?;
+    let mut v: Vec<Reference<'repo>> = Vec::new();
+    for (n, s) in components.enumerate() {
+        let name = match s.name() {
+            Some(name) => name,
+            None => {
+                for mut reference in v {
+                    let _ = reference.delete();
+                }
+                return Err(Error::from_str("summand reference must have a name"));
             }
-            Err(Error::from_str("failed"))
+        };
+        let ref_name = format!("{}{}{}{}{}", SUM_SUMMAND_PATTERN, SEPARATOR, sum_name, SEPARATOR, counter_start + 1 + n);
+        match repository.reference_symbolic(&ref_name, name, false, "start") {
+            Ok(r) => v.push(r),
+            Err(e) => {
+                for mut reference in v {
+                    let _ = reference.delete();
+                }
+                return Err(e);
+            }
         }
     }
+    Ok(v)
 }
 
 pub struct Sum<'repo> {
@@ -356,15 +371,34 @@ impl<'repo> Sum<'repo> {
         info!("create sum: {}", name);
         let summands = create_summand_refs(repository, name, 0, components)?;
 
+        if summands.is_empty() {
+            return Err(Error::from_str("cannot create sum with empty summands"));
+        }
 
-        let h = repository.branch(name,
-                                  // either at hinted
-                                  &hint.unwrap_or(summands[0].peel_to_commit().unwrap()),
-                                  // &head.peel_to_commit().unwrap()
-                                  // bug: we must drop the symbolic refs again!
-                                  false)?; // .expect("should be a new reference");
-        Ok(Self::new(h.into_reference(),
-                     summands))
+        let commit_to_point = match hint {
+            Some(c) => c,
+            None => match summands[0].peel_to_commit() {
+                Ok(c) => c,
+                Err(e) => {
+                    for mut s in summands {
+                        let _ = s.delete();
+                    }
+                    return Err(e);
+                }
+            },
+        };
+
+        let h = match repository.branch(name, &commit_to_point, false) {
+            Ok(b) => b,
+            Err(e) => {
+                for mut s in summands {
+                    let _ = s.delete();
+                }
+                return Err(e);
+            }
+        };
+
+        Ok(Self::new(h.into_reference(), summands))
     }
 
     pub fn add_summands<'a>(
@@ -726,5 +760,47 @@ mod tests {
 
         let err_sum2 = Sum::create(repo, "-option_sum", refs.into_iter(), Some(commit));
         assert!(err_sum2.is_err());
+    }
+
+    #[test]
+    fn test_segment_creation_failure_cleanup() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+        let base_branch = repo.branch("main", &commit, false).unwrap();
+
+        // Create an existing branch "existing-branch" so branch creation in Segment::create will fail
+        repo.branch("existing-branch", &commit, false).unwrap();
+
+        let res = Segment::create(
+            repo,
+            "existing-branch",
+            base_branch.get(),
+            commit.id(),
+            commit.id(),
+        );
+        assert!(res.is_err());
+
+        // Verify partial references refs/start/existing-branch and refs/base/existing-branch were cleaned up
+        assert!(repo.find_reference("refs/start/existing-branch").is_err());
+        assert!(repo.find_reference("refs/base/existing-branch").is_err());
+    }
+
+    #[test]
+    fn test_sum_creation_failure_cleanup() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+        let b1 = repo.branch("b1", &commit, false).unwrap();
+        repo.branch("existing-sum", &commit, false).unwrap();
+
+        let refs = [b1.get()];
+        let res = Sum::create(repo, "existing-sum", refs.into_iter(), Some(commit));
+        assert!(res.is_err());
+
+        // Verify summand references were cleaned up
+        assert!(repo.find_reference("refs/sums/existing-sum/1").is_err());
     }
 }
