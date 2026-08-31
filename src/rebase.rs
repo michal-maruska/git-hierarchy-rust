@@ -380,12 +380,6 @@ pub fn segment_to_continue(repository: &Repository) -> Option<(String,Option<(St
 {
     let path = marker_filename(repository);
 
-    if ! fs::exists(&path).unwrap_or(false) {
-        // eprintln!
-        debug!("marker file does not exist -- no segment is being rebased.");
-        return None;
-    }
-
     let content: String = fs::read_to_string(path).ok()?;
     let mut lines = content.lines();
     let segment_name = lines.next()?.trim().to_owned();
