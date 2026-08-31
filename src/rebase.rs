@@ -760,7 +760,7 @@ mod tests {
         create_marker_file(repo, "").unwrap();
         assert!(segment_to_continue(repo).is_none());
 
-        create_marker_file(repo, "feature\nbad_oid\nnot_a_number\n").unwrap();
+        create_marker_file(repo, "feature\nnot_a_number\nsome_oid\n").unwrap();
         assert!(segment_to_continue(repo).is_none());
     }
 }
