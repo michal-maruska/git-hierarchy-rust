@@ -49,30 +49,16 @@ pub enum RebaseResult {
 pub enum RebaseError {
     #[error("hierarchy broken at {}", .0)]
     WrongHierarchy(String),
-    #[error("repository in wrong state during rebase")]
-    WrongState,
+    #[error("repository in wrong state during rebase: {0:?}")]
+    WrongState(git2::RepositoryState),
+    #[error(transparent)]
+    Git2(#[from] git2::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Execute(#[from] crate::execute::Error),
     #[error("rebase error")]
     Default,
-    // Git2Error(#[from] git2::Error),
-}
-
-impl std::convert::From<crate::execute::Error> for RebaseError {
-    fn from(_e: crate::execute::Error) -> RebaseError{
-       RebaseError::Default
-    }
-}
-
-impl std::convert::From<git2::Error> for RebaseError {
-    fn from(_e: git2::Error) -> RebaseError{
-       RebaseError::Default
-    }
-}
-
-impl std::convert::From<std::io::Error> for RebaseError {
-    fn from(_e: std::io::Error) -> RebaseError{
-        // fixme!
-       RebaseError::Default
-    }
 }
 
 const TEMP_HEAD_NAME: &str = "tempSegment";
@@ -253,7 +239,7 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
     // fixme: if we are in the middle of rebase?
     if repository.state() != RepositoryState::Clean {
         error!("the repository is not clean");
-        return Err(RebaseError::WrongState);
+        return Err(RebaseError::WrongState(repository.state()));
     }
 
     info!("rebase_segment: {}", segment.name());
@@ -362,7 +348,7 @@ fn continue_segment_cherry_pick<'repo>(repository: &'repo Repository,
     let statuses = repository.statuses(None)?;
     if ! statuses.len() == 0 {
         eprintln!("Status is not clean!");
-        return Err(RebaseError::WrongState);
+        return Err(RebaseError::WrongState(repository.state()));
     }
 
     let commit = cherry_pick_commits(repository,
@@ -707,19 +693,26 @@ mod tests {
         let err1 = RebaseError::WrongHierarchy("branch-a".to_string());
         assert_eq!(err1.to_string(), "hierarchy broken at branch-a");
 
-        let err2 = RebaseError::WrongState;
-        assert_eq!(err2.to_string(), "repository in wrong state during rebase");
+        let err2 = RebaseError::WrongState(git2::RepositoryState::Rebase);
+        assert_eq!(err2.to_string(), "repository in wrong state during rebase: Rebase");
 
         let err3 = RebaseError::Default;
         assert_eq!(err3.to_string(), "rebase error");
 
         let git_err = git2::Error::from_str("some git error");
         let converted_git: RebaseError = git_err.into();
-        assert!(matches!(converted_git, RebaseError::Default));
+        assert!(matches!(converted_git, RebaseError::Git2(_)));
+        assert_eq!(converted_git.to_string(), "some git error");
 
         let io_err = std::io::Error::new(std::io::ErrorKind::Other, "io error");
         let converted_io: RebaseError = io_err.into();
-        assert!(matches!(converted_io, RebaseError::Default));
+        assert!(matches!(converted_io, RebaseError::Io(_)));
+        assert_eq!(converted_io.to_string(), "io error");
+
+        let exec_err = crate::execute::Error::NoWorkDir;
+        let converted_exec: RebaseError = exec_err.into();
+        assert!(matches!(converted_exec, RebaseError::Execute(_)));
+        assert_eq!(converted_exec.to_string(), "Repository has no working directory");
     }
 
     #[test]
