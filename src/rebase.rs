@@ -414,8 +414,8 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
                 // read the CHERRY_PICK_HEAD
                 // todo: convert to step.step2...
                 // mmc: so this is the same as `oid' ?
-                let head_str = read_cherry_pick_head(repository).map_err(|_| RebaseError::Default)?;
-                let commit_id = Oid::from_str(head_str.trim()).map_err(|_| RebaseError::Default)?;
+                let cherry_pick_str = read_cherry_pick_head(repository).map_err(|_| RebaseError::Default)?;
+                let commit_id = Oid::from_str(cherry_pick_str.trim()).map_err(|_| RebaseError::Default)?;
                 debug!("should continue the cherry-pick {:?}", commit_id);
 
                 let mut option =  StatusOptions::new();
