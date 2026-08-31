@@ -257,9 +257,7 @@ fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Resu
         let (remote_name, branch) = extract_remote_name(name)
             .ok_or_else(|| Error::from_str("invalid remote reference format"))?;
         let mut remote = repository.find_remote(remote_name)?;
-        debug!("fetching from remote {:?}: {:?}",
-               remote_name, // remote.name().unwrap(),
-               branch);
+        debug!("fetching from remote {:?}: {:?}", remote_name, branch);
 
         // FetchOptions, message
         if remote.fetch(&[branch], None, Some("part of poset-rebasing")).is_err() {
