@@ -394,7 +394,7 @@ pub fn segment_to_continue(repository: &Repository) -> Result<Option<(String,Opt
 
     let mut lines = content.lines();
     let segment_name = lines.next().ok_or(RebaseError::WrongState)?.trim().to_owned();
-    if segment_name.is_empty() {
+    if segment_name.is_empty() || !Segment::name_is_valid(&segment_name).map_err(|_| RebaseError::WrongState)? {
         return Err(RebaseError::WrongState);
     }
 
@@ -419,7 +419,7 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
     let (segment_name, rest) = segment_to_continue(repository)?.ok_or(RebaseError::Default)?;
     let skip;
 
-    if let GitHierarchy::Segment(segment) = load(repository, &segment_name).unwrap() {
+    if let GitHierarchy::Segment(segment) = load(repository, &segment_name).map_err(|_| RebaseError::WrongHierarchy(segment_name.clone()))? {
         let commit_id =
             if repository.state() == RepositoryState::CherryPick {
                 // read the CHERRY_PICK_HEAD
@@ -462,9 +462,9 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
                 // this means .... we couldn't start cherry-pick?
                 if let Some((oid, stored_skip)) = rest {
                     skip = stored_skip;
-                    Oid::from_str(&oid).unwrap()
+                    Oid::from_str(&oid).map_err(|_| RebaseError::WrongState)?
                 } else {
-                    panic!("don't know which commit to continue from")
+                    return Err(RebaseError::WrongState);
                 }
             };
 
@@ -772,6 +772,10 @@ mod tests {
         assert!(segment_to_continue(repo).is_err());
 
         create_marker_file(repo, "feature\nnot_a_number\nsome_oid\n").unwrap();
+        assert!(segment_to_continue(repo).is_err());
+
+        // Test invalid segment name with leading dash
+        create_marker_file(repo, "-option_inject\n1\nsome_oid\n").unwrap();
         assert!(segment_to_continue(repo).is_err());
     }
 }

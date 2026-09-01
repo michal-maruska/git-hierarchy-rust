@@ -376,7 +376,7 @@ fn main() -> anyhow::Result<()> {
                 Box::new(
                 move |x : &str|
                 concatenate(
-                    x.strip_suffix(&cli.clone[0]).unwrap(),
+                    x.strip_suffix(&cli.clone[0]).unwrap_or(x),
                     &cli.clone[1]))
             };
 
