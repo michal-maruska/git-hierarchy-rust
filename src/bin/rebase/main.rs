@@ -273,15 +273,18 @@ fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Resu
         // why redo this? see above ^^
 
         let mut branch = to_branch(repository, reference);
-        if let Some((mut remote, _remote_branch, remote_branch_name)) = upstream_of(repository, &branch) {
+        if let Some((mut remote, remote_branch, remote_branch_name)) = upstream_of(repository, &branch) {
 
-            if git_same_ref(repository, reference, branch.get())? {
+            if git_same_ref(repository, reference, remote_branch.get())? {
                 // we might be behind?
                 debug!("in sync, so let's fetch & update");
             } else {
                 // Check if still in sync, to not lose local changes.
-                panic!("{} not in sync with upstream {}; should not update.", name, branch.name().unwrap().unwrap());
-                // or merge/rebase.
+                return Err(Error::from_str(&format!(
+                    "{} not in sync with upstream {}; should not update.",
+                    name,
+                    remote_branch.name().ok().flatten().unwrap_or("")
+                )));
             }
 
             info!("fetch {} {} ....", remote.name().unwrap(), remote_branch_name);
