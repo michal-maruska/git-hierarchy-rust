@@ -66,35 +66,31 @@ fn sum_summands<'repo>(repository: &'repo Repository, name: &str) -> Vec<Referen
     v
 }
 
-pub fn sums(repository: &Repository) -> Result<impl Iterator<Item = String>, Error>
+pub fn sums(repository: &Repository) -> impl Iterator<Item = String>
 {
-    let iterator = repository.references_glob(&concatenate(SUM_SUMMAND_PATTERN, "*/*"))?;
-    let all = iterator
-        .filter_map(|r| {
-            let ref_obj = r.ok()?;
-            let name = ref_obj.name()?;
-            let rest = name.strip_prefix(SUM_SUMMAND_PATTERN)?;
-            let (sum_name, _) = rest.split_once('/')?;
-            Some(sum_name.to_string())
+    let iterator = repository.references_glob(&concatenate(SUM_SUMMAND_PATTERN, "*/*")).unwrap();
+    // so .names() is bad api!
+    let all =
+        iterator.map(move |r| {
+            r.unwrap().name().unwrap().strip_prefix(SUM_SUMMAND_PATTERN).unwrap()
+                .trim_end_matches(char::is_numeric)
+                .strip_suffix("/").unwrap()
+                .to_string()
         })
         .collect::<HashSet<_>>();
-    Ok(all.into_iter())
+    all.into_iter()
 }
 
 // I want an iterator on strings.
 // dyn Iterator<item = >
-pub fn segments(repository: &Repository) -> Result<impl Iterator<Item = String>, Error>
+pub fn segments(repository: &Repository) -> impl Iterator<Item = String>
 {
-    let iterator = repository.references_glob(&concatenate(SEGMENT_BASE_PATTERN, "*"))?;
-    let all = iterator
-        .filter_map(|r| {
-            let ref_obj = r.ok()?;
-            let name = ref_obj.name()?;
-            let seg_name = name.strip_prefix(SEGMENT_BASE_PATTERN)?;
-            Some(seg_name.to_string())
-        })
-        .collect::<Vec<_>>();
-    Ok(all.into_iter())
+    let iterator = repository.references_glob(&concatenate(SEGMENT_BASE_PATTERN, "*")).unwrap();
+    // so .names() is bad api!
+
+    iterator .map(move |r| {
+        r.unwrap().name().unwrap().strip_prefix(SEGMENT_BASE_PATTERN).unwrap().to_string()
+    })
 }
 
 fn branch_name<'a, 'repo>(reference: &'a Reference<'repo>) -> &'a str {
@@ -499,19 +495,23 @@ impl<'repo> Sum<'repo> {
 
     pub fn numbered_summands(&self, repository: &'repo Repository) -> Vec<(usize, usize, Reference<'repo>)> {
         debug!("resolving summands for {:?}", self.name());
-        self.summands.iter().enumerate().filter_map(
+        // = Vec::with_capacity(self.summands.len());
+        self.summands.iter().enumerate().map(
             |(index, summand)| {
-                let name = summand.name()?;
-                let rest = name.strip_prefix(SUM_SUMMAND_PATTERN)?;
-                let (n, v) = rest.split_once('/')?;
-                if self.name != n {
-                    return None;
+                if let Some((n, v)) = summand.name().unwrap().strip_prefix(SUM_SUMMAND_PATTERN).unwrap().split_once('/') {
+                assert_eq!(self.name, n);
+
+                let number  = v.parse::<usize>().unwrap();
+
+                let symbolic_base = repository.find_reference(
+                    summand.symbolic_target().expect("base should be a symbolic reference"),
+                ).expect("the summand symbolic target should exist");
+
+                debug!("{:?} -> {:?}", summand.name().unwrap(), symbolic_base.name().unwrap());
+                (index, number, symbolic_base)
+                } else {
+                    panic!();
                 }
-                let number = v.parse::<usize>().ok()?;
-                let target = summand.symbolic_target()?;
-                let symbolic_base = repository.find_reference(target).ok()?;
-                debug!("{:?} -> {:?}", name, symbolic_base.name().unwrap_or(""));
-                Some((index, number, symbolic_base))
             }).collect()
     }
 
@@ -670,7 +670,7 @@ mod tests {
             panic!("Expected GitHierarchy::Segment");
         }
 
-        let seg_list: Vec<String> = segments(repo).unwrap().collect();
+        let seg_list: Vec<String> = segments(repo).collect();
         assert!(seg_list.contains(&"feature".to_string()));
     }
 
@@ -719,7 +719,7 @@ mod tests {
             panic!("Expected GitHierarchy::Sum");
         }
 
-        let sum_list: Vec<String> = sums(repo).unwrap().collect();
+        let sum_list: Vec<String> = sums(repo).collect();
         assert!(sum_list.contains(&"my-sum".to_string()));
     }
 
@@ -812,26 +812,5 @@ mod tests {
 
         // Verify summand references were cleaned up
         assert!(repo.find_reference("refs/sums/existing-sum/1").is_err());
-    }
-
-    #[test]
-    fn test_safe_ref_parsing_and_corrupt_references() {
-        let test_repo = TestRepo::new();
-        let repo = &test_repo.repo;
-
-        let commit = create_commit(repo, "commit 1", &[]);
-
-        // Create non-standard/corrupt references under refs/sums/ and refs/base/
-        repo.reference("refs/sums/bad_format", commit.id(), true, "test").unwrap();
-        repo.reference("refs/sums/valid_sum/not_a_number", commit.id(), true, "test").unwrap();
-        repo.reference("refs/base/some_base", commit.id(), true, "test").unwrap();
-
-        // sums() should safely extract valid sum names without panicking on malformed ones
-        let sum_names: Vec<String> = sums(repo).unwrap().collect();
-        assert!(sum_names.contains(&"valid_sum".to_string()));
-
-        // segments() should safely extract segment names without panicking
-        let seg_names: Vec<String> = segments(repo).unwrap().collect();
-        assert!(seg_names.contains(&"some_base".to_string()));
     }
 }

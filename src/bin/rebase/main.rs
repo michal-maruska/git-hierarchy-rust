@@ -106,6 +106,7 @@ fn remerge_sum<'repo>(
             })
         .collect();
 
+
     let parent_commits = sum.parent_commits();
 
     debug!("The current parent commits are: {:?}", parent_commits);
@@ -450,9 +451,16 @@ fn main() {
         rebase_segment_continue(&repository).unwrap();
     } else {
         // fixme: what if SUM?
-        if let Ok(Some((segment_name, _))) = segment_to_continue(&repository) {
-            eprintln!("{} {}",Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
-            exit(1);
+        match segment_to_continue(&repository) {
+            Ok(Some((segment_name, _))) => {
+                eprintln!("{} {}", Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
+                exit(1);
+            }
+            Err(e) => {
+                eprintln!("{}: {:?}", Colorize::red("Error reading rebase state"), e);
+                exit(1);
+            }
+            Ok(None) => {}
         }
     }
 
@@ -502,6 +510,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ::git_hierarchy::test_utils::{create_commit, TestRepo};
 
     #[test]
     fn test_extract_remote_name() {
@@ -520,8 +529,6 @@ mod tests {
 
     #[test]
     fn test_fetch_upstream_of_out_of_sync() {
-        use ::git_hierarchy::test_utils::{create_commit, TestRepo};
-
         let test_repo = TestRepo::new();
         let repo = &test_repo.repo;
 
