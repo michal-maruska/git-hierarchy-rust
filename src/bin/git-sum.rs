@@ -234,10 +234,10 @@ fn main()
 }
 
 fn list_sums(repository: &Repository) {
-    if let Ok(ref_iterator) = sums(repository) {
-        for r in ref_iterator {
-            println!("{}", r);
-        }
+    let ref_iterator = sums(repository);
+
+    for r in ref_iterator {
+        println!("{}", r);
     }
 }
 

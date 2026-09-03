@@ -66,40 +66,31 @@ fn sum_summands<'repo>(repository: &'repo Repository, name: &str) -> Vec<Referen
     v
 }
 
-pub fn sums(repository: &Repository) -> Result<impl Iterator<Item = String>, Error>
+pub fn sums(repository: &Repository) -> impl Iterator<Item = String>
 {
-    let iterator = repository.references_glob(&concatenate(SUM_SUMMAND_PATTERN, "*/*"))?;
-    let mut all = HashSet::new();
-    for r in iterator.flatten() {
-        if let Some(name) = r.name() {
-            if let Some(rest) = name.strip_prefix(SUM_SUMMAND_PATTERN) {
-                if let Some((sum_name, _num)) = rest.split_once('/') {
-                    if !sum_name.is_empty() {
-                        all.insert(sum_name.to_string());
-                    }
-                }
-            }
-        }
-    }
-    Ok(all.into_iter())
+    let iterator = repository.references_glob(&concatenate(SUM_SUMMAND_PATTERN, "*/*")).unwrap();
+    // so .names() is bad api!
+    let all =
+        iterator.map(move |r| {
+            r.unwrap().name().unwrap().strip_prefix(SUM_SUMMAND_PATTERN).unwrap()
+                .trim_end_matches(char::is_numeric)
+                .strip_suffix("/").unwrap()
+                .to_string()
+        })
+        .collect::<HashSet<_>>();
+    all.into_iter()
 }
 
 // I want an iterator on strings.
 // dyn Iterator<item = >
-pub fn segments(repository: &Repository) -> Result<impl Iterator<Item = String>, Error>
+pub fn segments(repository: &Repository) -> impl Iterator<Item = String>
 {
-    let iterator = repository.references_glob(&concatenate(SEGMENT_BASE_PATTERN, "*"))?;
-    let mut all = Vec::new();
-    for r in iterator.flatten() {
-        if let Some(name) = r.name() {
-            if let Some(seg_name) = name.strip_prefix(SEGMENT_BASE_PATTERN) {
-                if !seg_name.is_empty() {
-                    all.push(seg_name.to_string());
-                }
-            }
-        }
-    }
-    Ok(all.into_iter())
+    let iterator = repository.references_glob(&concatenate(SEGMENT_BASE_PATTERN, "*")).unwrap();
+    // so .names() is bad api!
+
+    iterator .map(move |r| {
+        r.unwrap().name().unwrap().strip_prefix(SEGMENT_BASE_PATTERN).unwrap().to_string()
+    })
 }
 
 fn branch_name<'a, 'repo>(reference: &'a Reference<'repo>) -> &'a str {
@@ -425,16 +416,14 @@ impl<'repo> Sum<'repo> {
         // find:
         let mut max : usize = 0;
         for i in summands {
-            if let Some(name) = i.name() {
-                if let Some(rest) = name.strip_prefix(SUM_SUMMAND_PATTERN) {
-                    if let Some((_sum_name, index_str)) = rest.split_once('/') {
-                        if let Ok(index) = index_str.parse::<usize>() {
-                            if max < index {
-                                max = index;
-                            }
-                        }
-                    }
-                }
+            eprintln!("summand {}", i.name().unwrap());
+            let n = i.name().expect("must have name").strip_prefix(SUM_SUMMAND_PATTERN).expect("must have SUM prefix")
+                .strip_prefix(&self.name).expect("owned by the sum")
+                .strip_prefix("/").expect("/");
+            let index = n.parse::<usize>().expect("should be numeric");
+            // eprintln!("summand {}", index);
+            if max < index {
+                max = index;
             }
         }
         let mut new_summands = create_summand_refs(repository, &self.name, max, components)?;
@@ -506,19 +495,23 @@ impl<'repo> Sum<'repo> {
 
     pub fn numbered_summands(&self, repository: &'repo Repository) -> Vec<(usize, usize, Reference<'repo>)> {
         debug!("resolving summands for {:?}", self.name());
-        self.summands.iter().enumerate().filter_map(
+        // = Vec::with_capacity(self.summands.len());
+        self.summands.iter().enumerate().map(
             |(index, summand)| {
-                let ref_name = summand.name()?;
-                let rest = ref_name.strip_prefix(SUM_SUMMAND_PATTERN)?;
-                let (n, v) = rest.split_once('/')?;
-                if n != self.name {
-                    return None;
-                }
-                let number = v.parse::<usize>().ok()?;
-                let symbolic_target = summand.symbolic_target()?;
-                let symbolic_base = repository.find_reference(symbolic_target).ok()?;
+                if let Some((n, v)) = summand.name().unwrap().strip_prefix(SUM_SUMMAND_PATTERN).unwrap().split_once('/') {
+                assert_eq!(self.name, n);
+
+                let number  = v.parse::<usize>().unwrap();
+
+                let symbolic_base = repository.find_reference(
+                    summand.symbolic_target().expect("base should be a symbolic reference"),
+                ).expect("the summand symbolic target should exist");
+
                 debug!("{:?} -> {:?}", summand.name().unwrap(), symbolic_base.name().unwrap());
-                Some((index, number, symbolic_base))
+                (index, number, symbolic_base)
+                } else {
+                    panic!();
+                }
             }).collect()
     }
 
@@ -677,7 +670,7 @@ mod tests {
             panic!("Expected GitHierarchy::Segment");
         }
 
-        let seg_list: Vec<String> = segments(repo).unwrap().collect();
+        let seg_list: Vec<String> = segments(repo).collect();
         assert!(seg_list.contains(&"feature".to_string()));
     }
 
@@ -726,7 +719,7 @@ mod tests {
             panic!("Expected GitHierarchy::Sum");
         }
 
-        let sum_list: Vec<String> = sums(repo).unwrap().collect();
+        let sum_list: Vec<String> = sums(repo).collect();
         assert!(sum_list.contains(&"my-sum".to_string()));
     }
 
@@ -819,20 +812,5 @@ mod tests {
 
         // Verify summand references were cleaned up
         assert!(repo.find_reference("refs/sums/existing-sum/1").is_err());
-    }
-
-    #[test]
-    fn test_malformed_reference_parsing() {
-        let test_repo = TestRepo::new();
-        let repo = &test_repo.repo;
-
-        let commit = create_commit(repo, "commit 1", &[]);
-
-        // Create malformed reference under refs/sums/ without trailing slash or numeric summand
-        repo.reference("refs/sums/bad_sum_no_slash", commit.id(), false, "test").unwrap();
-
-        // sums() and segments() should handle malformed references without panicking
-        let _s_list: Vec<String> = sums(repo).unwrap().collect();
-        let _seg_list: Vec<String> = segments(repo).unwrap().collect();
     }
 }

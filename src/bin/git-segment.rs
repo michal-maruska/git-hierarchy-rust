@@ -220,10 +220,10 @@ fn describe(repository: &Repository, segment_name: &str) {
 }
 
 fn list_segments(repository: &Repository) {
-    if let Ok(ref_iterator) = segments(repository) {
-        for r in ref_iterator {
-            println!("{}", segment_fmt(&r));
-        }
+    let ref_iterator = segments(repository);
+
+    for r in ref_iterator {
+        println!("{}", segment_fmt(&r));
     }
 }
 
