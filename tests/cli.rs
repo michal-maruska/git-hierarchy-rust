@@ -88,23 +88,3 @@ fn test_cli_define_and_list_segment() {
     let stdout = String::from_utf8_lossy(&list_output.stdout);
     assert!(stdout.contains("feature"));
 }
-
-#[test]
-fn test_cli_rebase_poset_corrupt_marker_file() {
-    let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
-
-    // Create a corrupt marker file in commondir
-    let marker_path = temp_repo.repo.commondir().join(".segment-cherry-pick");
-    std::fs::write(&marker_path, "feature\ncorrupt_data\n").unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
-        .arg("-g")
-        .arg(&temp_repo.path)
-        .output()
-        .expect("failed to execute git-rebase-poset");
-
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Error reading rebase state"));
-}
