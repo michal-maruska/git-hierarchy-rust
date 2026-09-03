@@ -66,44 +66,40 @@ fn sum_summands<'repo>(repository: &'repo Repository, name: &str) -> Vec<Referen
     v
 }
 
-pub fn sums(repository: &Repository) -> impl Iterator<Item = String>
+pub fn sums(repository: &Repository) -> Result<impl Iterator<Item = String>, Error>
 {
-    let iterator = repository.references_glob(&concatenate(SUM_SUMMAND_PATTERN, "*/*"));
+    let iterator = repository.references_glob(&concatenate(SUM_SUMMAND_PATTERN, "*/*"))?;
     let mut all = HashSet::new();
-    if let Ok(iter) = iterator {
-        for r in iter.flatten() {
-            if let Some(name) = r.name() {
-                if let Some(rest) = name.strip_prefix(SUM_SUMMAND_PATTERN) {
-                    if let Some((sum_name, _num)) = rest.split_once('/') {
-                        if !sum_name.is_empty() {
-                            all.insert(sum_name.to_string());
-                        }
+    for r in iterator.flatten() {
+        if let Some(name) = r.name() {
+            if let Some(rest) = name.strip_prefix(SUM_SUMMAND_PATTERN) {
+                if let Some((sum_name, _num)) = rest.split_once('/') {
+                    if !sum_name.is_empty() {
+                        all.insert(sum_name.to_string());
                     }
                 }
             }
         }
     }
-    all.into_iter()
+    Ok(all.into_iter())
 }
 
 // I want an iterator on strings.
 // dyn Iterator<item = >
-pub fn segments(repository: &Repository) -> impl Iterator<Item = String>
+pub fn segments(repository: &Repository) -> Result<impl Iterator<Item = String>, Error>
 {
-    let iterator = repository.references_glob(&concatenate(SEGMENT_BASE_PATTERN, "*"));
+    let iterator = repository.references_glob(&concatenate(SEGMENT_BASE_PATTERN, "*"))?;
     let mut all = Vec::new();
-    if let Ok(iter) = iterator {
-        for r in iter.flatten() {
-            if let Some(name) = r.name() {
-                if let Some(seg_name) = name.strip_prefix(SEGMENT_BASE_PATTERN) {
-                    if !seg_name.is_empty() {
-                        all.push(seg_name.to_string());
-                    }
+    for r in iterator.flatten() {
+        if let Some(name) = r.name() {
+            if let Some(seg_name) = name.strip_prefix(SEGMENT_BASE_PATTERN) {
+                if !seg_name.is_empty() {
+                    all.push(seg_name.to_string());
                 }
             }
         }
     }
-    all.into_iter()
+    Ok(all.into_iter())
 }
 
 fn branch_name<'a, 'repo>(reference: &'a Reference<'repo>) -> &'a str {
@@ -681,7 +677,7 @@ mod tests {
             panic!("Expected GitHierarchy::Segment");
         }
 
-        let seg_list: Vec<String> = segments(repo).collect();
+        let seg_list: Vec<String> = segments(repo).unwrap().collect();
         assert!(seg_list.contains(&"feature".to_string()));
     }
 
@@ -730,7 +726,7 @@ mod tests {
             panic!("Expected GitHierarchy::Sum");
         }
 
-        let sum_list: Vec<String> = sums(repo).collect();
+        let sum_list: Vec<String> = sums(repo).unwrap().collect();
         assert!(sum_list.contains(&"my-sum".to_string()));
     }
 
@@ -836,7 +832,7 @@ mod tests {
         repo.reference("refs/sums/bad_sum_no_slash", commit.id(), false, "test").unwrap();
 
         // sums() and segments() should handle malformed references without panicking
-        let _s_list: Vec<String> = sums(repo).collect();
-        let _seg_list: Vec<String> = segments(repo).collect();
+        let _s_list: Vec<String> = sums(repo).unwrap().collect();
+        let _seg_list: Vec<String> = segments(repo).unwrap().collect();
     }
 }
