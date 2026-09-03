@@ -106,6 +106,15 @@ fn remerge_sum<'repo>(
             })
         .collect();
 
+    for s in &graphed_summands {
+        if !Segment::name_is_valid(s.node_identity())? {
+            return Err(RebaseError::WrongHierarchy(format!(
+                "invalid summand name: {}",
+                s.node_identity()
+            )));
+        }
+    }
+
     let parent_commits = sum.parent_commits();
 
     debug!("The current parent commits are: {:?}", parent_commits);
@@ -514,6 +523,35 @@ fn main() {
 mod tests {
     use super::*;
     use ::git_hierarchy::test_utils::{create_commit, TestRepo};
+
+    #[test]
+    fn test_remerge_sum_rejects_invalid_summand_name() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[]);
+        let merge_commit = create_commit(repo, "merge", &[&commit1, &commit2]);
+
+        let b1 = repo.branch("b1", &commit1, false).unwrap();
+        let b2 = repo.branch("b2", &commit2, false).unwrap();
+
+        let refs = [b1.get(), b2.get()];
+        let sum = Sum::create(repo, "valid-sum", refs.into_iter(), Some(merge_commit)).unwrap();
+
+        let mut object_map = HashMap::new();
+        object_map.insert(
+            "refs/heads/b1".to_string(),
+            GitHierarchy::Name("-option-inject".to_string()),
+        );
+        object_map.insert(
+            "refs/heads/b2".to_string(),
+            GitHierarchy::Reference(b2.into_reference()),
+        );
+
+        let res = remerge_sum(repo, &sum, &object_map);
+        assert!(matches!(res, Err(RebaseError::WrongHierarchy(_))));
+    }
 
     // marker to avoid merge conflicts
 
