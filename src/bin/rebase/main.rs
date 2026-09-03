@@ -517,4 +517,28 @@ mod tests {
         assert_eq!(extract_remote_name("invalid_ref"), None);
         assert_eq!(extract_remote_name("refs/remotes/no_slash"), None);
     }
+
+    #[test]
+    fn test_fetch_upstream_of_out_of_sync() {
+        use ::git_hierarchy::test_utils::{create_commit, TestRepo};
+
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+
+        let mut branch = repo.branch("feature", &commit1, false).unwrap();
+        repo.remote("origin", "https://example.com/repo.git").unwrap();
+
+        // Set up a remote tracking reference
+        repo.reference("refs/remotes/origin/feature", commit2.id(), true, "test remote").unwrap();
+        branch.set_upstream(Some("origin/feature")).unwrap();
+
+        let branch_ref = branch.get();
+        // Since local branch is at commit1 and remote is at commit2, they are out of sync.
+        let result = fetch_upstream_of(repo, branch_ref);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not in sync with upstream"));
+    }
 }
