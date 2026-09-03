@@ -53,7 +53,7 @@ struct Cli {
     #[arg(long, short='r', num_args(2))]
     replace: Vec<String>,
 
-    // suffix, or  suffix-remove, suffix-add
+    /// suffix to add, or suffix to remove and suffix to add (only nodes matching the suffix will be renamed)
     #[arg(long, short = 'c', num_args(1..3))]
     clone: Vec<String>,
     // Bug:
@@ -375,9 +375,11 @@ fn main() -> anyhow::Result<()> {
             } else {
                 Box::new(
                 move |x : &str|
-                concatenate(
-                    x.strip_suffix(&cli.clone[0]).unwrap_or(x),
-                    &cli.clone[1]))
+                if let Some(stripped) = x.strip_suffix(&cli.clone[0]) {
+                    concatenate(stripped, &cli.clone[1])
+                } else {
+                    x.to_owned()
+                })
             };
 
         walk_down(&repository, &root,
