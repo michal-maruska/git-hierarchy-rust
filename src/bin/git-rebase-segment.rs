@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 use clap::Parser;
 
-use git_hierarchy::git_hierarchy::{GitHierarchy};
+use std::process::exit;
+use git_hierarchy::git_hierarchy::{GitHierarchy, Segment};
 use git_hierarchy::rebase::{check_segment, rebase_segment};
 use git_hierarchy::utils::{init_tracing};
 use git_hierarchy::base::open_repository;
@@ -26,17 +27,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let cli = Cli::parse();
     init_tracing(cli.verbose);
 
-    let repository = match open_repository(cli.directory.as_ref())
-    {
+    let repository = match open_repository(cli.directory.as_ref()) {
         Ok(repository) => repository,
-        Err(e) => panic!("failed to open: {}", e),
+        Err(e) => {
+            eprintln!("failed to open repository: {}", e);
+            exit(1);
+        }
     };
 
+    if !Segment::name_is_valid(&cli.segment_name)? {
+        eprintln!("invalid segment name: {}", cli.segment_name);
+        exit(1);
+    }
+
     // continue...
-    let gh = git_hierarchy::git_hierarchy::load(&repository, &cli.segment_name).unwrap();
+    let gh = git_hierarchy::git_hierarchy::load(&repository, &cli.segment_name)?;
     if let GitHierarchy::Segment(segment) = gh {
         check_segment(&repository, &segment)?;
-        rebase_segment(&repository, &segment).unwrap();
+        rebase_segment(&repository, &segment)?;
+    } else {
+        eprintln!("{} is not a segment", cli.segment_name);
+        exit(1);
     }
     Ok(())
 }

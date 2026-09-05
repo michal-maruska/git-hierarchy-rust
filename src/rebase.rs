@@ -379,9 +379,9 @@ pub fn segment_to_continue(repository: &Repository) -> Result<Option<(String,Opt
     };
 
     let mut lines = content.lines();
-    let segment_name = lines.next().ok_or_else(|| RebaseError::WrongState(repository.state()))?.trim().to_owned();
-    if segment_name.is_empty() {
-        return Err(RebaseError::WrongState(repository.state()));
+    let segment_name = lines.next().ok_or(RebaseError::WrongState)?.trim().to_owned();
+    if segment_name.is_empty() || !Segment::name_is_valid(&segment_name).map_err(|_| RebaseError::WrongState)? {
+        return Err(RebaseError::WrongState);
     }
 
     // this can fail: if we failed on the last commit, at the moment of commit -- empty or whatever.
@@ -405,7 +405,7 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
     let (segment_name, rest) = segment_to_continue(repository)?.ok_or(RebaseError::Default)?;
     let skip;
 
-    if let GitHierarchy::Segment(segment) = load(repository, &segment_name).unwrap() {
+    if let GitHierarchy::Segment(segment) = load(repository, &segment_name)? {
         let commit_id =
             if repository.state() == RepositoryState::CherryPick {
                 // read the CHERRY_PICK_HEAD

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use clap::{Parser,Subcommand,CommandFactory,FromArgMatches};
 use git_hierarchy::base::is_linear_ancestor;
-use git2::{Repository,Oid}; // ,build::CheckoutBuilder
+use git2::{Oid, Repository, build::CheckoutBuilder};
 
 #[allow(unused_imports)]
 use git_hierarchy::git_hierarchy::{GitHierarchy,Segment,segments,load,
@@ -15,7 +15,6 @@ use tracing::debug;
 // about ... Description from Cargo.toml
 #[command(version, long_about = None)]
 #[command(subcommand_negates_reqs = true)]
-#[command(args_conflicts_with_subcommands = true)] // positional arguments
 // ^^ this means that Factory produces command, and then ^^ those are called on it?
 struct Cli {
 
@@ -220,10 +219,10 @@ fn describe(repository: &Repository, segment_name: &str) {
 }
 
 fn list_segments(repository: &Repository) {
-    let ref_iterator = segments(repository);
-
-    for r in ref_iterator {
-        println!("{}", segment_fmt(&r));
+    if let Ok(ref_iterator) = segments(repository) {
+        for r in ref_iterator {
+            println!("{}", segment_fmt(&r));
+        }
     }
 }
 
@@ -305,9 +304,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let seg = define(&repository, &args).expect("failed to define new segment");
 
                 // try to switch
-                println!("should checkout now");
-                repository.set_head(seg.reference.borrow().name().unwrap()).expect("should set HEAD");
-                repository.checkout_head(None).expect("should checkout");
+                // let reference = seg.reference_clone(repository);
+                let name = seg.reference.borrow().name().unwrap().to_string();
+                let reference = repository.find_reference(&name).expect("should contain existing reference");
+                println!("should checkout now {}", name);
+
+                // 1. Checkout the TARGET tree first (while HEAD still points at the old ref)
+                let target_commit = reference.peel_to_commit()?;
+                let target_tree = target_commit.tree()?;
+                repository.checkout_tree(target_tree.as_object(), Some(CheckoutBuilder::new().safe()))?;
+
+                // 2. THEN move HEAD to point at the new ref
+                repository.set_head(&name)?; // expect("should set HEAD");
             }
             Commands::Define(args) => {
                 define(&repository, &args).expect("failed to define new segment");
