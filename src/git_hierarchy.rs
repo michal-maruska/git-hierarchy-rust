@@ -455,25 +455,23 @@ impl<'repo> Sum<'repo> {
             }).collect()
     }
 
+    // given sum/this/5 -> refs/heads/component1
+    // returns [(1,5,refs/heads/component1), ....]
     pub fn numbered_summands(&self, repository: &'repo Repository) -> Vec<(usize, usize, Reference<'repo>)> {
         debug!("resolving summands for {:?}", self.name());
-        // = Vec::with_capacity(self.summands.len());
-        self.summands.iter().enumerate().map(
+        self.summands.iter().enumerate().filter_map(
             |(index, summand)| {
-                if let Some((n, v)) = summand.name().unwrap().strip_prefix(SUM_SUMMAND_PATTERN).unwrap().split_once('/') {
-                assert_eq!(self.name, n);
-
-                let number  = v.parse::<usize>().unwrap();
-
-                let symbolic_base = repository.find_reference(
-                    summand.symbolic_target().expect("base should be a symbolic reference"),
-                ).expect("the summand symbolic target should exist");
-
-                debug!("{:?} -> {:?}", summand.name().unwrap(), symbolic_base.name().unwrap());
-                (index, number, symbolic_base)
-                } else {
-                    panic!();
+                let name = summand.name()?;
+                let rest = name.strip_prefix(SUM_SUMMAND_PATTERN)?;
+                let (n, v) = rest.split_once('/')?;
+                if self.name != n {
+                    return None;
                 }
+                let number = v.parse::<usize>().ok()?;
+                let target = summand.symbolic_target()?;
+                let symbolic_base = repository.find_reference(target).ok()?;
+                debug!("{:?} -> {:?}", name, symbolic_base.name().unwrap_or(""));
+                Some((index, number, symbolic_base))
             }).collect()
     }
 
