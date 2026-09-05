@@ -106,6 +106,15 @@ fn remerge_sum<'repo>(
             })
         .collect();
 
+    for s in &graphed_summands {
+        if !Segment::name_is_valid(s.node_identity())? {
+            return Err(RebaseError::WrongHierarchy(format!(
+                "invalid summand name: {}",
+                s.node_identity()
+            )));
+        }
+    }
+
     let parent_commits = sum.parent_commits();
 
     debug!("The current parent commits are: {:?}", parent_commits);
@@ -244,33 +253,24 @@ fn remerge_sum<'repo>(
 }
 
 /// Given full git-reference name /refs/remotes/xx/bb return xx and bb
-fn extract_remote_name(name: &str) -> (&str, &str) {
+fn extract_remote_name(name: &str) -> Option<(&str, &str)> {
     debug!("extract_remote_name: {:?}", name);
-    // let norm = Reference::normalize_name(reference.name().unwrap(), ReferenceFormat::NORMAL).unwrap();
-
-    let split_char = '/';
-
-    let (prefix, rest) = name.split_once(split_char).unwrap();
-    assert_eq!(prefix, "refs");
-    let (prefix, rest) = rest.split_once(split_char).unwrap();
-    assert_eq!(prefix, "remotes");
-
-    let (remote, branch) = rest.split_once(split_char).unwrap();
-    (remote, branch)
+    let rest = name.strip_prefix("refs/remotes/")?;
+    rest.split_once('/')
 }
 
 fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Result<(), Error> {
     // resolve what to fetch.
     if reference.is_remote() {
-        let (remote_name, branch) = extract_remote_name(reference.name().unwrap());
-        let mut remote = repository.find_remote(remote_name).unwrap();
-        debug!("fetching from remote {:?}: {:?}",
-               remote_name, // remote.name().unwrap(),
-               branch);
+        let name = reference.name().ok_or_else(|| Error::from_str("reference missing name"))?;
+        let (remote_name, branch) = extract_remote_name(name)
+            .ok_or_else(|| Error::from_str("invalid remote reference format"))?;
+        let mut remote = repository.find_remote(remote_name)?;
+        debug!("fetching from remote {:?}: {:?}", remote_name, branch);
 
         // FetchOptions, message
         if remote.fetch(&[branch], None, Some("part of poset-rebasing")).is_err() {
-            panic!("** Fetch failed");
+            return Err(Error::from_str("Fetch failed"));
         }
     } else if reference.is_branch() { // and we know it's not Segment/Sum, right?
         // the user has a reason to use local branch.
@@ -282,15 +282,18 @@ fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Resu
         // why redo this? see above ^^
 
         let mut branch = to_branch(repository, reference);
-        if let Some((mut remote, _remote_branch, remote_branch_name)) = upstream_of(repository, &branch) {
+        if let Some((mut remote, remote_branch, remote_branch_name)) = upstream_of(repository, &branch) {
 
-            if git_same_ref(repository, reference, branch.get())? {
+            if git_same_ref(repository, reference, remote_branch.get())? {
                 // we might be behind?
                 debug!("in sync, so let's fetch & update");
             } else {
                 // Check if still in sync, to not lose local changes.
-                panic!("{} not in sync with upstream {}; should not update.", name, branch.name().unwrap().unwrap());
-                // or merge/rebase.
+                return Err(Error::from_str(&format!(
+                    "{} not in sync with upstream {}; should not update.",
+                    name,
+                    remote_branch.name().ok().flatten().unwrap_or("")
+                )));
             }
 
             info!("fetch {} {} ....", remote.name().unwrap(), remote_branch_name);
@@ -456,9 +459,16 @@ fn main() {
         rebase_segment_continue(&repository).unwrap();
     } else {
         // fixme: what if SUM?
-        if let Some((segment_name, _)) = segment_to_continue(&repository) {
-            eprintln!("{} {}",Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
-            exit(1);
+        match segment_to_continue(&repository) {
+            Ok(Some((segment_name, _))) => {
+                eprintln!("{} {}", Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
+                exit(1);
+            }
+            Err(e) => {
+                eprintln!("{}: {:?}", Colorize::red("Error reading rebase state"), e);
+                exit(1);
+            }
+            Ok(None) => {}
         }
     }
 
@@ -502,5 +512,79 @@ fn main() {
         exit(-1);
     } else {
         eprintln!("{}",Colorize::green("Done"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ::git_hierarchy::test_utils::{create_commit, TestRepo};
+
+    #[test]
+    fn test_extract_remote_name() {
+        assert_eq!(
+            extract_remote_name("refs/remotes/origin/main"),
+            Some(("origin", "main"))
+        );
+        assert_eq!(
+            extract_remote_name("refs/remotes/upstream/feature/branch"),
+            Some(("upstream", "feature/branch"))
+        );
+        assert_eq!(extract_remote_name("refs/heads/main"), None);
+        assert_eq!(extract_remote_name("invalid_ref"), None);
+        assert_eq!(extract_remote_name("refs/remotes/no_slash"), None);
+    }
+
+    #[test]
+    fn test_remerge_sum_rejects_invalid_summand_name() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[]);
+        let merge_commit = create_commit(repo, "merge", &[&commit1, &commit2]);
+
+        let b1 = repo.branch("b1", &commit1, false).unwrap();
+        let b2 = repo.branch("b2", &commit2, false).unwrap();
+
+        let refs = [b1.get(), b2.get()];
+        let sum = Sum::create(repo, "valid-sum", refs.into_iter(), Some(merge_commit)).unwrap();
+
+        let mut object_map = HashMap::new();
+        object_map.insert(
+            "refs/heads/b1".to_string(),
+            GitHierarchy::Name("-option-inject".to_string()),
+        );
+        object_map.insert(
+            "refs/heads/b2".to_string(),
+            GitHierarchy::Reference(b2.into_reference()),
+        );
+
+        let res = remerge_sum(repo, &sum, &object_map);
+        assert!(matches!(res, Err(RebaseError::WrongHierarchy(_))));
+    }
+
+    #[test]
+    fn test_fetch_upstream_of_out_of_sync() {
+        use ::git_hierarchy::test_utils::{create_commit, TestRepo};
+
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+
+        let mut branch = repo.branch("feature", &commit1, false).unwrap();
+        repo.remote("origin", "https://example.com/repo.git").unwrap();
+
+        // Set up a remote tracking reference
+        repo.reference("refs/remotes/origin/feature", commit2.id(), true, "test remote").unwrap();
+        branch.set_upstream(Some("origin/feature")).unwrap();
+
+        let branch_ref = branch.get();
+        // Since local branch is at commit1 and remote is at commit2, they are out of sync.
+        let result = fetch_upstream_of(repo, branch_ref);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not in sync with upstream"));
     }
 }
