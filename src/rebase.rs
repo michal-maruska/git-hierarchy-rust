@@ -419,7 +419,7 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
     let (segment_name, rest) = segment_to_continue(repository)?.ok_or(RebaseError::Default)?;
     let skip;
 
-    if let GitHierarchy::Segment(segment) = load(repository, &segment_name).unwrap() {
+    if let GitHierarchy::Segment(segment) = load(repository, &segment_name)? {
         let commit_id =
             if repository.state() == RepositoryState::CherryPick {
                 // read the CHERRY_PICK_HEAD
