@@ -379,9 +379,9 @@ pub fn segment_to_continue(repository: &Repository) -> Result<Option<(String,Opt
     };
 
     let mut lines = content.lines();
-    let segment_name = lines.next().ok_or(RebaseError::WrongState)?.trim().to_owned();
-    if segment_name.is_empty() || !Segment::name_is_valid(&segment_name).map_err(|_| RebaseError::WrongState)? {
-        return Err(RebaseError::WrongState);
+    let segment_name = lines.next().ok_or_else(|| RebaseError::WrongState(repository.state()))?.trim().to_owned();
+    if segment_name.is_empty() || !Segment::name_is_valid(&segment_name).map_err(|_| RebaseError::WrongState(repository.state()))? {
+        return Err(RebaseError::WrongState(repository.state()));
     }
 
     // this can fail: if we failed on the last commit, at the moment of commit -- empty or whatever.
