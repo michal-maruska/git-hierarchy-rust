@@ -318,6 +318,13 @@ where 'repo : 'a {
                 return Err(Error::from_str("summand reference must have a name"));
             }
         };
+        let short_name = extract_name(name);
+        if !Segment::name_is_valid(short_name)? {
+            for mut reference in v {
+                let _ = reference.delete();
+            }
+            return Err(Error::from_str("invalid summand reference name"));
+        }
         let summand_ref_name = format!("{}{}{}{}{}", SUM_SUMMAND_PATTERN, SEPARATOR, sum_name, SEPARATOR, counter_start + 1 + n);
         match repository.reference_symbolic(&summand_ref_name, name, false, "start") {
             Ok(r) => v.push(r),
@@ -835,5 +842,27 @@ mod tests {
         // segments() should safely extract segment names without panicking
         let seg_names: Vec<String> = segments(repo).unwrap().collect();
         assert!(seg_names.contains(&"some_base".to_string()));
+    }
+
+    #[test]
+    fn test_sum_creation_and_add_summands_reject_invalid_summand_names() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+        let valid_branch = repo.branch("valid", &commit, false).unwrap();
+
+        let _ = repo.reference("refs/heads/-invalid", commit.id(), true, "test").unwrap();
+        let invalid_ref = repo.find_reference("refs/heads/-invalid").unwrap();
+
+        // Creating a sum with an invalid summand reference should fail
+        let err_sum = Sum::create(repo, "sum1", std::iter::once(&invalid_ref), Some(commit.clone()));
+        assert!(err_sum.is_err());
+
+        // Adding an invalid summand reference to an existing sum should fail
+        let valid_ref = valid_branch.get();
+        let mut sum = Sum::create(repo, "sum2", std::iter::once(valid_ref), Some(commit.clone())).unwrap();
+        let err_add = sum.add_summands(repo, std::iter::once(&invalid_ref), None);
+        assert!(err_add.is_err());
     }
 }
