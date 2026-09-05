@@ -69,14 +69,16 @@ fn sum_summands<'repo>(repository: &'repo Repository, name: &str) -> Vec<Referen
 
 pub fn sums(repository: &Repository) -> impl Iterator<Item = String>
 {
-    let iterator = repository.references_glob(&concatenate(SUM_SUMMAND_PATTERN, "*/*")).unwrap();
-    // so .names() is bad api!
-    let all =
-        iterator.map(move |r| {
-            r.unwrap().name().unwrap().strip_prefix(SUM_SUMMAND_PATTERN).unwrap()
-                .trim_end_matches(char::is_numeric)
-                .strip_suffix("/").unwrap()
-                .to_string()
+    let iterator = repository.references_glob(&concatenate(SUM_SUMMAND_PATTERN, "*/*")).ok();
+    let all = iterator
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            let ref_obj = r.ok()?;
+            let name = ref_obj.name()?;
+            let rest = name.strip_prefix(SUM_SUMMAND_PATTERN)?;
+            let (sum_name, _) = rest.split_once('/')?;
+            Some(sum_name.to_string())
         })
         .collect::<HashSet<_>>();
     all.into_iter()
@@ -86,12 +88,18 @@ pub fn sums(repository: &Repository) -> impl Iterator<Item = String>
 // dyn Iterator<item = >
 pub fn segments(repository: &Repository) -> impl Iterator<Item = String>
 {
-    let iterator = repository.references_glob(&concatenate(SEGMENT_BASE_PATTERN, "*")).unwrap();
-    // so .names() is bad api!
-
-    iterator .map(move |r| {
-        r.unwrap().name().unwrap().strip_prefix(SEGMENT_BASE_PATTERN).unwrap().to_string()
-    })
+    let iterator = repository.references_glob(&concatenate(SEGMENT_BASE_PATTERN, "*")).ok();
+    let all = iterator
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            let ref_obj = r.ok()?;
+            let name = ref_obj.name()?;
+            let seg_name = name.strip_prefix(SEGMENT_BASE_PATTERN)?;
+            Some(seg_name.to_string())
+        })
+        .collect::<Vec<_>>();
+    all.into_iter()
 }
 
 fn branch_name<'a, 'repo>(reference: &'a Reference<'repo>) -> &'a str {
@@ -702,5 +710,26 @@ mod tests {
         let refs = [base_branch.get()];
         let err_sum = Sum::create(repo, "../bad_sum", refs.into_iter(), Some(commit));
         assert!(err_sum.is_err());
+    }
+
+    #[test]
+    fn test_safe_ref_parsing_and_corrupt_references() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+
+        // Create non-standard/corrupt references under refs/sums/ and refs/base/
+        repo.reference("refs/sums/bad_format", commit.id(), true, "test").unwrap();
+        repo.reference("refs/sums/valid_sum/not_a_number", commit.id(), true, "test").unwrap();
+        repo.reference("refs/base/some_base", commit.id(), true, "test").unwrap();
+
+        // sums() should safely extract valid sum names without panicking on malformed ones
+        let sum_names: Vec<String> = sums(repo).collect();
+        assert!(sum_names.contains(&"valid_sum".to_string()));
+
+        // segments() should safely extract segment names without panicking
+        let seg_names: Vec<String> = segments(repo).collect();
+        assert!(seg_names.contains(&"some_base".to_string()));
     }
 }
