@@ -456,9 +456,16 @@ fn main() {
         rebase_segment_continue(&repository).unwrap();
     } else {
         // fixme: what if SUM?
-        if let Ok(Some((segment_name, _))) = segment_to_continue(&repository) {
-            eprintln!("{} {}",Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
-            exit(1);
+        match segment_to_continue(&repository) {
+            Ok(Some((segment_name, _))) => {
+                eprintln!("{} {}", Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
+                exit(1);
+            }
+            Err(e) => {
+                eprintln!("{}: {:?}", Colorize::red("Error reading rebase state"), e);
+                exit(1);
+            }
+            Ok(None) => {}
         }
     }
 
