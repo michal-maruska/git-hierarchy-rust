@@ -90,6 +90,37 @@ fn test_cli_define_and_list_segment() {
 }
 
 #[test]
+fn test_cli_define_and_list_sum() {
+    let temp_repo = TestRepo::new();
+    let commit = temp_repo.create_initial_commit();
+
+    // Create a branch b1 to use as summand
+    temp_repo.repo.branch("b1", &commit, false).unwrap();
+
+    // Run git-sum define my-sum b1
+    let output = Command::new(env!("CARGO_BIN_EXE_git-sum"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("my-sum")
+        .arg("b1")
+        .output()
+        .expect("failed to execute git-sum define");
+
+    assert!(output.status.success(), "Stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Run git-sum -g <path> in temp repo directory to list sums
+    let list_output = Command::new(env!("CARGO_BIN_EXE_git-sum"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .output()
+        .expect("failed to execute git-sum list");
+
+    assert!(list_output.status.success(), "List Stderr: {}\nStdout: {}", String::from_utf8_lossy(&list_output.stderr), String::from_utf8_lossy(&list_output.stdout));
+    let stdout = String::from_utf8_lossy(&list_output.stdout);
+    assert!(stdout.contains("my-sum"));
+}
+
+#[test]
 fn test_cli_rebase_poset_corrupt_marker_file() {
     let temp_repo = TestRepo::new();
     temp_repo.create_initial_commit();

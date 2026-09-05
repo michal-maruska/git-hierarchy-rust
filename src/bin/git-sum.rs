@@ -234,9 +234,15 @@ fn main()
 }
 
 fn list_sums(repository: &Repository) {
-    if let Ok(ref_iterator) = sums(repository) {
-        for r in ref_iterator {
-            println!("{}", r);
+    match sums(repository) {
+        Ok(ref_iterator) => {
+            for r in ref_iterator {
+                println!("{}", r);
+            }
+        }
+        Err(e) => {
+            eprintln!("failed to list sums: {}", e);
+            exit(1);
         }
     }
 }
@@ -258,7 +264,7 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) {
 
         let summands_refs = summands_gh.iter().collect();
 
-        if let Err(e) = check_summands(repository, &sum, &sum.parent_commits(), &summands_refs) {
+        if let Err(_e) = check_summands(repository, &sum, &sum.parent_commits(), &summands_refs) {
             eprint!("Sum is not up-to-date");
         }
 
