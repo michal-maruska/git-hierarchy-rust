@@ -157,7 +157,11 @@ fn remerge_sum<'repo>(
             ];
             cmdline.extend(graphed_summands.iter().map(|s| s.node_identity()));
 
-            git_run(repository, &cmdline)?;
+            let status = git_run(repository, &cmdline)?;
+            // status.exit_ok().or_else(|e| Err(RebaseError::Default))?;
+            if status.code() != Some(0) {
+                return Err(RebaseError::Default);
+            }
             // "commit": move the SUM head with reflog message:
             sum.reset(repository.head()?.resolve()?.target().unwrap());
         } else {
