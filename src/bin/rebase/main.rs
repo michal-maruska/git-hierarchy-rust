@@ -508,3 +508,13 @@ fn main() {
         eprintln!("{}",Colorize::green("Done"));
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ::git_hierarchy::test_utils::{create_commit, TestRepo};
+
+    // marker to avoid merge conflicts
+
+}
