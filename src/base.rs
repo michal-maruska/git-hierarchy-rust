@@ -157,6 +157,7 @@ pub fn open_repository(directory_option: Option<&PathBuf>) -> Result<Repository,
     }
 }
 
+// heads/XX  follows   refs/remotes/remote1/main    -> remote1-as-object, refs/remotes/remote1/main, "main"
 pub fn upstream_of<'repo>(repository: &'repo Repository, branch: &Branch<'repo>) -> Option<(Remote<'repo>, Branch<'repo>, String)>
 {
     let upstream = branch.upstream().ok()?;
