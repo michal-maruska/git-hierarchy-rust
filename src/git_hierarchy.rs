@@ -592,6 +592,9 @@ pub fn load<'repo>(
     name: &'_ str,
 ) -> Result<GitHierarchy<'repo>, git2::Error> {
     let name = extract_name(name);
+    if !Segment::name_is_valid(name)? {
+        return Err(git2::Error::from_str("invalid reference name"));
+    }
     let reference = repository.resolve_reference_from_short_name(name)?;
 
     if let Ok(base) = repository.find_reference(base_name(name).as_str()) {
@@ -697,6 +700,15 @@ mod tests {
         } else {
             panic!("Expected GitHierarchy::Reference");
         }
+    }
+
+    #[test]
+    fn test_load_rejects_invalid_reference_name() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        assert!(load(repo, "-option-inject").is_err());
+        assert!(load(repo, "../bad_ref").is_err());
     }
 
     #[test]
