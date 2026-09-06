@@ -37,7 +37,10 @@ impl<'repo> GitHierarchyProvider<'repo> {
         self.call_count += 1;
         // get from the object_map
         let repository = self.repository;
-        let gh = load(repository, vertex).unwrap();
+        let gh = match load(repository, vertex) {
+            Ok(gh) => gh,
+            Err(_) => return Vec::new(),
+        };
         // convert if necessary
 
         // Get the children,

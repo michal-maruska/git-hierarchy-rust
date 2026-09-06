@@ -387,7 +387,11 @@ fn rebase_tree(repository: &Repository,
     // verify we can do it:
     debug!("Verify");
     for v in &hierarchy_graph.discovery_order {
-        let name = hierarchy_graph.labeled_objects.get(v).unwrap().node_identity();
+        let vertex = hierarchy_graph
+            .labeled_objects
+            .get(v)
+            .ok_or_else(|| RebaseError::WrongHierarchy(v.clone()))?;
+        let name = vertex.node_identity();
         debug!(
             "{:?} -> ({:?} / {:?})",
             v,
@@ -400,14 +404,16 @@ fn rebase_tree(repository: &Repository,
             info!("not checking: {name}");
             continue;
         }
-        let vertex = hierarchy_graph.labeled_objects.get(v).unwrap();
         check_node(repository, vertex, &hierarchy_graph.labeled_objects)?
             // with context .expect("nodes should be in correct state");
     }
 
     debug!("Rebasing");
     for v in &hierarchy_graph.discovery_order {
-        let vertex = hierarchy_graph.labeled_objects.get(v).unwrap();
+        let vertex = hierarchy_graph
+            .labeled_objects
+            .get(v)
+            .ok_or_else(|| RebaseError::WrongHierarchy(v.clone()))?;
         let name = vertex.node_identity();
 
         if skip.iter().any(|x| x == name) {
