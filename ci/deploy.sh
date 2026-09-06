@@ -63,7 +63,7 @@ Maintainer: Michal Maruska <mmaruska@gmail.com>
 Depends: git
 Section: utils
 Priority: optional
-Homepage: https://github.com/MichalMaruska/git-hierarchy-rust
+Homepage: https://github.com/michal-maruska/git-hierarchy-rust
 Description: Tool to rebase a hierarchy of local development commits
  git-hierarchy provides a suite of tools (git-walk-down, git-rebase-poset,
  git-rebase-segment, git-segment, git-sum) to manipulate and rebase a
