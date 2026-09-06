@@ -389,7 +389,7 @@ fn rebase_tree(repository: &Repository,
                 .node_weight(*hierarchy_graph.labeled_nodes.get(v).unwrap())
                 .unwrap()
         );
-        if ignore.iter().any(|x| x == name) {
+        if ignore.iter().any(|x| x == v) {
             info!("not checking: {name}");
             continue;
         }
