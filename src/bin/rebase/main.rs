@@ -17,7 +17,7 @@ use git2::{Branch, BranchType, Error, Commit, Reference, ReferenceFormat, Reposi
 #[allow(unused_imports)]
 use tracing::{span, Level, debug, info, warn,error};
 
-use ::git_hierarchy::base::{checkout_new_head_at, git_same_ref, open_repository, upstream_of,to_branch};
+use ::git_hierarchy::base::{checkout_new_head_at, extract_remote_name, git_same_ref, open_repository, upstream_of, to_branch};
 use ::git_hierarchy::execute::git_run;
 use ::git_hierarchy::utils::{iterator_symmetric_difference, init_tracing,
 };
@@ -254,13 +254,6 @@ fn remerge_sum<'repo>(
     // do we have a hint -- another merge?
     // git merge
     Ok(RebaseResult::Done)
-}
-
-/// Given full git-reference name /refs/remotes/xx/bb return xx and bb
-fn extract_remote_name(name: &str) -> Option<(&str, &str)> {
-    debug!("extract_remote_name: {:?}", name);
-    let rest = name.strip_prefix("refs/remotes/")?;
-    rest.split_once('/')
 }
 
 fn fetch_upstream_of(repository: &Repository, reference: &Reference<'_>) -> Result<(), Error> {
@@ -560,21 +553,6 @@ mod tests {
     }
 
     // marker to avoid merge conflicts
-
-    #[test]
-    fn test_extract_remote_name() {
-        assert_eq!(
-            extract_remote_name("refs/remotes/origin/main"),
-            Some(("origin", "main"))
-        );
-        assert_eq!(
-            extract_remote_name("refs/remotes/upstream/feature/branch"),
-            Some(("upstream", "feature/branch"))
-        );
-        assert_eq!(extract_remote_name("refs/heads/main"), None);
-        assert_eq!(extract_remote_name("invalid_ref"), None);
-        assert_eq!(extract_remote_name("refs/remotes/no_slash"), None);
-    }
 
     #[test]
     fn test_fetch_upstream_of_out_of_sync() {

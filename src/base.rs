@@ -149,6 +149,13 @@ pub fn repository_clean(repository: &Repository) -> bool {
     true
 }
 
+/// Given full git-reference name /refs/remotes/xx/bb return xx and bb
+pub fn extract_remote_name(name: &str) -> Option<(&str, &str)> {
+    debug!("extract_remote_name: {:?}", name);
+    let rest = name.strip_prefix("refs/remotes/")?;
+    rest.split_once('/')
+}
+
 pub fn open_repository(directory_option: Option<&PathBuf>) -> Result<Repository, Error> {
     if let Some(directory) = directory_option {
         Repository::open(directory)
@@ -254,6 +261,21 @@ mod tests {
 
         let found_branch = to_branch(repo, reference);
         assert_eq!(found_branch.name().unwrap().unwrap(), "feature-x");
+    }
+
+    #[test]
+    fn test_extract_remote_name() {
+        assert_eq!(
+            extract_remote_name("refs/remotes/origin/main"),
+            Some(("origin", "main"))
+        );
+        assert_eq!(
+            extract_remote_name("refs/remotes/upstream/feature/branch"),
+            Some(("upstream", "feature/branch"))
+        );
+        assert_eq!(extract_remote_name("refs/heads/main"), None);
+        assert_eq!(extract_remote_name("invalid_ref"), None);
+        assert_eq!(extract_remote_name("refs/remotes/no_slash"), None);
     }
 
     #[test]
