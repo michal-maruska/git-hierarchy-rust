@@ -15,7 +15,7 @@ use crate::graph::discover::NodeExpander;
 use crate::utils::{concatenate, extract_name};
 
 
-use git2::{Commit, Oid, Reference, Repository, Revwalk, Sort, Error};
+use git2::{Commit, Oid, Reference, Repository, Revwalk, Sort, Error,ErrorCode};
 
 // low level sum & segment
 const SEGMENT_BASE_PATTERN: &str = "refs/base/";
@@ -170,8 +170,13 @@ impl<'repo> Segment<'repo> {
         ) {
             Ok(br) => br,
             Err(e) => {
-                let _ = s.delete();
-                let _ = b.delete();
+                debug!("failed to create the 'head' of the segment: {}", e);
+                if e.code() != ErrorCode::Exists {
+                    let _ = s.delete();
+                    let _ = b.delete();
+                } else {
+                    info!("ignoring");
+                }
                 return Err(e);
             }
         };
@@ -809,7 +814,7 @@ mod tests {
             "existing-branch",
             base_branch.get(),
             commit.id(),
-            commit.id(),
+            Oid::from_str("deadbeef").unwrap(),
         );
         assert!(res.is_err());
 
