@@ -5,7 +5,7 @@ use git2::{Repository,Reference,Oid};
 use colored::Colorize;
 
 #[allow(unused_imports)]
-use git_hierarchy::git_hierarchy::{GitHierarchy,Sum,load,sums, sum_fmt};
+use git_hierarchy::git_hierarchy::{GitHierarchy,Segment,Sum,load,sums, sum_fmt};
 use git_hierarchy::rebase::check_summands;
 
 
@@ -128,10 +128,13 @@ fn define_sum<'repo,'a, T: AsRef<str> + 'a>(repository: &'repo Repository,
                                             name: &str,
                                             summands: &[T],
                                             hint: Option<T>) {
-    let sumrefs : Vec<Reference>
-        = summands.iter().map(|x| {
-            repository.resolve_reference_from_short_name(x.as_ref()).unwrap()
-        }).collect();
+    let sumrefs = match resolve_references_from_user(repository, summands) {
+        Ok(refs) => refs,
+        Err(e) => {
+            eprintln!("{}: {}", Colorize::red("failed to resolve summands"), e);
+            exit(1);
+        }
+    };
 
     let mut hint_head_oid = None;
 
@@ -145,8 +148,6 @@ fn define_sum<'repo,'a, T: AsRef<str> + 'a>(repository: &'repo Repository,
             }
         } else {
             debug!("not a valid commit id {}", s.as_ref());
-            // hint.map(|x| repository.resolve_reference_from_short_name(x.as_ref()).unwrap()),
-            // symbolic ...
         }
     }
 
@@ -157,22 +158,36 @@ fn define_sum<'repo,'a, T: AsRef<str> + 'a>(repository: &'repo Repository,
         hint_head_oid
     );
 
-    if sum.is_err() {
-        eprintln!("{}",Colorize::green("failed to create sum"));
+    if let Err(e) = sum {
+        eprintln!("{}: {}", Colorize::red("failed to create sum"), e);
         exit(1);
     }
 }
 
 fn delete_sum(repository: &Repository, args: &DeleteCmd) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.sum_name).unwrap();
+    let gh = match git_hierarchy::git_hierarchy::load(repository, &args.sum_name) {
+        Ok(gh) => gh,
+        Err(e) => {
+            eprintln!("{}: {}", Colorize::red("failed to load sum"), e);
+            exit(1);
+        }
+    };
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
         // drop all summands
-        sum.reference.borrow_mut().delete().unwrap();
-        for mut summand in sum.summands { // (repository)
-            summand.delete().expect("should be able to drop summand reference");
-            // sum.reference.borrow_mut().delete();
+        if let Err(e) = sum.reference.borrow_mut().delete() {
+            eprintln!("{}: {}", Colorize::red("failed to delete sum reference"), e);
+            exit(1);
         }
+        for mut summand in sum.summands { // (repository)
+            if let Err(e) = summand.delete() {
+                eprintln!("{}: {}", Colorize::red("failed to drop summand reference"), e);
+                exit(1);
+            }
+        }
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.sum_name);
+        exit(1);
     }
 }
 
@@ -248,65 +263,133 @@ fn list_sums(repository: &Repository) {
 }
 
 fn describe_sum(repository: &Repository, args: &ShowArgs) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+    let gh = match git_hierarchy::git_hierarchy::load(repository, &args.name) {
+        Ok(gh) => gh,
+        Err(e) => {
+            eprintln!("{}: {}", Colorize::red("failed to load sum"), e);
+            exit(1);
+        }
+    };
     if let GitHierarchy::Sum(sum) = gh {
-        //        sum: &git_hierarchy::git_hierarchy::Sum<'repo>
-
         println!("sum {}", sum_fmt(sum.name()));
         let summands = sum.summands(repository);
         for s in &summands {
             println!("\t {}", s.name().unwrap());
         }
         // report if clean or dirty.
-        let summands_gh : Vec<GitHierarchy<'_>> =
-            summands.into_iter().map(|x|
-                git_hierarchy::git_hierarchy::load(repository, x.name().unwrap()).unwrap()).collect();
+        let mut summands_gh = Vec::new();
+        for x in &summands {
+            if let Some(name) = x.name() {
+                if let Ok(gh) = git_hierarchy::git_hierarchy::load(repository, name) {
+                    summands_gh.push(gh);
+                }
+            }
+        }
 
         let summands_refs = summands_gh.iter().collect();
 
         if let Err(_e) = check_summands(repository, &sum, &sum.parent_commits(), &summands_refs) {
             eprint!("Sum is not up-to-date");
         }
-
-        // prune non-existings summands ??? why?
-        // fn show_prune_definition(){unimplemented!()}
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
+        exit(1);
     }
 }
 
-// summands: Vec<String>,
-fn resolve_references_from_user<'repo, S, VS, >(repository: &'repo Repository, names: VS) -> Vec<Reference<'repo>>
-where VS: IntoIterator<Item = S>,
-    S: AsRef<str>
+fn resolve_references_from_user<'repo, S, VS>(
+    repository: &'repo Repository,
+    names: VS,
+) -> Result<Vec<Reference<'repo>>, git2::Error>
+where
+    VS: IntoIterator<Item = S>,
+    S: AsRef<str>,
 {
-    // resolve the given references
-    names.into_iter().map(|x| {
-        repository.resolve_reference_from_short_name(x.as_ref()).unwrap()
-    }).collect()
+    let mut refs = Vec::new();
+    for name in names {
+        let name_str = name.as_ref();
+        if !Segment::name_is_valid(name_str)? {
+            return Err(git2::Error::from_str(&format!(
+                "invalid reference name: {}",
+                name_str
+            )));
+        }
+        let reference = repository.resolve_reference_from_short_name(name_str)?;
+        refs.push(reference);
+    }
+    Ok(refs)
 }
 
 fn add_to_sum(repository: &Repository, args: &AddArgs) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+    let gh = match git_hierarchy::git_hierarchy::load(repository, &args.name) {
+        Ok(gh) => gh,
+        Err(e) => {
+            eprintln!("{}: {}", Colorize::red("failed to load sum"), e);
+            exit(1);
+        }
+    };
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs = resolve_references_from_user(repository, &args.summands);
+        let sumrefs = match resolve_references_from_user(repository, &args.summands) {
+            Ok(refs) => refs,
+            Err(e) => {
+                eprintln!("{}: {}", Colorize::red("failed to resolve summands"), e);
+                exit(1);
+            }
+        };
 
-        sum.add_summands(repository, sumrefs.iter(), None).expect("failed to add summands");
+        if let Err(e) = sum.add_summands(repository, sumrefs.iter(), None) {
+            eprintln!("{}: {}", Colorize::red("failed to add summands"), e);
+            exit(1);
+        }
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
+        exit(1);
     }
 }
 
 fn remove_from_sum(repository: &Repository, args: &RemoveArgs) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+    let gh = match git_hierarchy::git_hierarchy::load(repository, &args.name) {
+        Ok(gh) => gh,
+        Err(e) => {
+            eprintln!("{}: {}", Colorize::red("failed to load sum"), e);
+            exit(1);
+        }
+    };
 
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs = resolve_references_from_user(repository, &args.summands);
-        sum.remove_summands(repository, sumrefs.iter()).expect("failed to add summands");
+        let sumrefs = match resolve_references_from_user(repository, &args.summands) {
+            Ok(refs) => refs,
+            Err(e) => {
+                eprintln!("{}: {}", Colorize::red("failed to resolve summands"), e);
+                exit(1);
+            }
+        };
+        if let Err(e) = sum.remove_summands(repository, sumrefs.iter()) {
+            eprintln!("{}: {}", Colorize::red("failed to remove summands"), e);
+            exit(1);
+        }
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
+        exit(1);
     }
-
 }
 
 
-/*
-fn git_sum_branches() {unimplemented!()}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use git_hierarchy::test_utils::TestRepo;
 
+    #[test]
+    fn test_resolve_references_rejects_invalid_names() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
 
-fn remove_from_sum() {unimplemented!()}
-*/
+        let invalid_names = vec!["-option-inject", "--flag"];
+        let res = resolve_references_from_user(repo, invalid_names);
+        match res {
+            Err(e) => assert!(e.to_string().contains("invalid reference name")),
+            Ok(_) => panic!("expected error for invalid reference name"),
+        }
+    }
+}
