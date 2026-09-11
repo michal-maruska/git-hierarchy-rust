@@ -227,13 +227,6 @@ fn cherry_pick_commits<'repo, T>(repository: &'repo Repository,
 /// Given a @segment, and HEAD ....
 /// either exit or rewrite the segment ....its reference should update oid.
 pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'repo>) -> Result<RebaseResult, RebaseError> {
-    if !Segment::name_is_valid(segment.name())? {
-        return Err(RebaseError::WrongHierarchy(format!(
-            "invalid segment name: {}",
-            segment.name()
-        )));
-    }
-
     if segment.uptodate(repository) {
         info!("nothing to do -- base and start equal");
         return Ok(RebaseResult::Nothing);
@@ -502,10 +495,6 @@ fn rebase_empty_segment<'repo>(
 
 pub fn check_segment(repository: &Repository, segment: &Segment<'_>) -> Result<(), RebaseError>
 {
-    if !Segment::name_is_valid(segment.name())? {
-        return Err(RebaseError::WrongHierarchy(segment.name().to_owned()));
-    }
-
     // no merge commits
     if ! is_linear_ancestor(repository,
                             segment.start(),
@@ -784,22 +773,6 @@ mod tests {
 
         create_marker_file(repo, "feature\nnot_a_number\nsome_oid\n").unwrap();
         assert!(segment_to_continue(repo).is_err());
-    }
-
-    #[test]
-    fn test_rebase_and_check_segment_reject_invalid_name() {
-        let test_repo = TestRepo::new();
-        let repo = &test_repo.repo;
-
-        let commit = crate::test_utils::create_commit(repo, "test commit", &[]);
-        let invalid_branch = repo.reference("refs/heads/-option-inject", commit.id(), true, "test").unwrap();
-        let base_ref = repo.reference("refs/base/-option-inject", commit.id(), true, "test").unwrap();
-        let start_ref = repo.reference("refs/start/-option-inject", commit.id(), true, "test").unwrap();
-
-        let segment = Segment::new(invalid_branch, base_ref, start_ref);
-
-        assert!(matches!(rebase_segment(repo, &segment), Err(RebaseError::WrongHierarchy(_))));
-        assert!(matches!(check_segment(repo, &segment), Err(RebaseError::WrongHierarchy(_))));
     }
 }
 
