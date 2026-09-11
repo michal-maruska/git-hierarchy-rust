@@ -139,3 +139,22 @@ fn test_cli_rebase_poset_corrupt_marker_file() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Error reading rebase state"));
 }
+
+#[test]
+fn test_cli_sum_rejects_invalid_summand_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-sum"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--")
+        .arg("my-sum")
+        .arg("-invalid-option")
+        .output()
+        .expect("failed to execute git-sum define");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("failed to resolve reference") || stderr.contains("invalid reference name"));
+}
