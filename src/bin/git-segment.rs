@@ -151,28 +151,17 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
 
     // no: either ref or sha
     let start = if let Some(s) = &args.start {
-        match resolve_user_commit(repository, s) {
-            Some(oid) => oid,
-            None => {
-                eprintln!("failed to resolve start commit '{}'", s);
-                exit(1)
-            }
-        }
+        resolve_user_commit(repository, s).expect("failed to resolve start commit")
     } else {
         base.target().unwrap()
     };
 
-    let head = if let Some(x) = &args.head {
-        match resolve_user_commit(repository, x) {
-            Some(oid) => oid,
-            None => {
-                eprintln!("failed to resolve head commit '{}'", x);
-                exit(1)
-            }
-        }
-    } else {
-        start
-    };
+    let head =
+        args.head.as_ref().map_or(
+            start,
+            |x|
+            resolve_user_commit(repository, x).expect("input must be valid")
+        );
 
     let res = Segment::create(repository, &args.segment_name, &base, start, head);
 
