@@ -171,10 +171,6 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
 }
 
 fn delete(repository: &Repository, args: &DeleteCmd) {
-    if match Segment::name_is_valid(&args.segment_name) { Ok(v) => !v, Err(_) => true } {
-        eprintln!("invalid segment name: {}", args.segment_name);
-        exit(1);
-    }
     let gh = match git_hierarchy::git_hierarchy::load(repository, &args.segment_name) {
         Ok(gh) => gh,
         Err(e) => {
