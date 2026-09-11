@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::process::exit;
 use clap::{Parser,Subcommand,CommandFactory,FromArgMatches};
 use git_hierarchy::base::is_linear_ancestor;
 use git2::{Oid, Repository, build::CheckoutBuilder};
@@ -150,8 +151,7 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
 
     // no: either ref or sha
     let start = if let Some(s) = &args.start {
-        // note: as_ref().unwrap()  vs unwrap().as_ref() ...
-        resolve_user_commit(repository, s).unwrap()
+        resolve_user_commit(repository, s).expect("failed to resolve start commit")
     } else {
         base.target().unwrap()
     };
@@ -171,9 +171,13 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
 }
 
 fn delete(repository: &Repository, args: &DeleteCmd) {
-    // check sums above
-    // segments based on it.
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.segment_name).unwrap();
+    let gh = match git_hierarchy::git_hierarchy::load(repository, &args.segment_name) {
+        Ok(gh) => gh,
+        Err(e) => {
+            eprintln!("failed to load segment '{}': {}", args.segment_name, e);
+            exit(1)
+        }
+    };
     if let GitHierarchy::Segment(mut segment) = gh {
         println!("Delete {} in {:?}", args.segment_name, repository.path());
 
@@ -186,7 +190,13 @@ fn delete(repository: &Repository, args: &DeleteCmd) {
 // see list_segment in git-walk-down.rs
 fn describe(repository: &Repository, segment_name: &str) {
 
-    let gh = git_hierarchy::git_hierarchy::load(repository, segment_name).unwrap();
+    let gh = match git_hierarchy::git_hierarchy::load(repository, segment_name) {
+        Ok(gh) => gh,
+        Err(e) => {
+            eprintln!("failed to load segment '{}': {}", segment_name, e);
+            exit(1)
+        }
+    };
     if let GitHierarchy::Segment(segment) = gh {
         println!("Segment {} in {:?}", segment_fmt(segment_name), repository.path());
 
@@ -280,22 +290,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 list_segments(&repository);
             }
             Commands::Restart(args) => {
-                let gh = git_hierarchy::git_hierarchy::load(&repository, &args.segment_name).unwrap();
+                let gh = match git_hierarchy::git_hierarchy::load(&repository, &args.segment_name) {
+                    Ok(gh) => gh,
+                    Err(e) => {
+                        eprintln!("failed to load segment '{}': {}", args.segment_name, e);
+                        exit(1)
+                    }
+                };
                 if let GitHierarchy::Segment(segment) = gh {
-                    let oid =
-                        resolve_user_commit(&repository,
-                                            args.commit.as_ref())
-                        .unwrap();
+                    let oid = match resolve_user_commit(&repository, args.commit.as_ref()) {
+                        Some(oid) => oid,
+                        None => {
+                            eprintln!("failed to resolve commit '{}'", args.commit);
+                            exit(1)
+                        }
+                    };
                     println!("restart from {} {}", args.commit, oid);
                     segment.set_start(&repository, oid);
                 }
 
             },
             Commands::Update(args) => {
-                let gh = git_hierarchy::git_hierarchy::load(&repository, &args.segment_name).unwrap();
+                let gh = match git_hierarchy::git_hierarchy::load(&repository, &args.segment_name) {
+                    Ok(gh) => gh,
+                    Err(e) => {
+                        eprintln!("failed to load segment '{}': {}", args.segment_name, e);
+                        exit(1)
+                    }
+                };
                 if let GitHierarchy::Segment(segment) = gh {
-                    let new_base = repository.resolve_reference_from_short_name(&args.new_base)
-                        .expect("new base should exist");
+                    let new_base = match repository.resolve_reference_from_short_name(&args.new_base) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            eprintln!("failed to resolve new base '{}': {}", args.new_base, e);
+                            exit(1)
+                        }
+                    };
                     println!("rebase from {} -> {} {}", args.new_base,
                              new_base.name().unwrap(),
                              if args.rebase {"immediately"} else {""});
@@ -343,7 +373,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 start: if args.len() > 2 {Some(args[2].clone())} else {None},
                 head: if args.len() > 3 {Some(args[3].clone())} else {None},
             };
-            define(&repository, &def).unwrap();
+            if let Err(e) = define(&repository, &def) {
+                eprintln!("failed to define segment: {}", e);
+                exit(1)
+            }
         }
     } else {
         list_segments(&repository);

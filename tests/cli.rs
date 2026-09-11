@@ -139,3 +139,43 @@ fn test_cli_rebase_poset_corrupt_marker_file() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Error reading rebase state"));
 }
+
+#[test]
+fn test_cli_git_sum_invalid_summand() {
+    let temp_repo = TestRepo::new();
+    let commit = temp_repo.create_initial_commit();
+    temp_repo.repo.branch("b1", &commit, false).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-sum"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("test-sum")
+        .arg("b1")
+        .arg("--")
+        .arg("-invalid-summand")
+        .output()
+        .expect("failed to execute git-sum");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid reference name: -invalid-summand"), "Stderr was: {}", stderr);
+}
+
+#[test]
+fn test_cli_git_segment_nonexistent() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("restart")
+        .arg("nonexistent-segment")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-segment");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("failed to load segment 'nonexistent-segment'"));
+}
