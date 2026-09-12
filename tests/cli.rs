@@ -156,5 +156,5 @@ fn test_cli_sum_rejects_invalid_summand_name() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to resolve reference") || stderr.contains("invalid reference name"));
+    assert!(stderr.contains("invalid reference name"));
 }
