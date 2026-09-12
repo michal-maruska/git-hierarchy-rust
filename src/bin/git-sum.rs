@@ -157,8 +157,16 @@ fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<(), git2::Err
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
         sum.reference.borrow_mut().delete()?;
+        let mut first_err = None;
         for mut summand in sum.summands {
-            summand.delete()?;
+            if let Err(e) = summand.delete() {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+        if let Some(e) = first_err {
+            return Err(e);
         }
     }
     Ok(())
