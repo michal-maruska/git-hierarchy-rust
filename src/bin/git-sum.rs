@@ -123,25 +123,33 @@ struct DeleteCmd {
 }
 
 // fn take<>(x: impl IntoIterator<Item=&'a T>)
+fn resolve_to_commit_maybe<'repo, T: AsRef<str>>(
+    repository: &'repo Repository,
+    hint: Option<T>,
+) -> Result<Option<git2::Commit<'repo>>, git2::Error> {
+    let s = match hint {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+
+    if let Ok(sha) = Oid::from_str(s.as_ref()) {
+        if let Ok(commit) = repository.find_commit(sha) {
+            return Ok(Some(commit));
+        } else {
+            debug!("couldn't resolve {}", sha);
+        }
+    } else {
+        debug!("not a valid commit id {}", s.as_ref());
+    }
+    Ok(None)
+}
+
 fn define_sum<'repo,'a, T: AsRef<str> + 'a>(repository: &'repo Repository,
                                             name: &str,
                                             summands: &[T],
                                             hint: Option<T>) -> Result<(), git2::Error> {
     let sumrefs = resolve_references_from_user(repository, summands)?;
-
-    let mut hint_head_oid = None;
-
-    if let Some(s) = hint {
-        if let Ok(sha) = Oid::from_str(s.as_ref()) {
-            if let Ok(commit) = repository.find_commit(sha) {
-                hint_head_oid = Some(commit);
-            } else {
-                debug!("couldn't resolve {}", sha)
-            }
-        } else {
-            debug!("not a valid commit id {}", s.as_ref());
-        }
-    }
+    let hint_head_oid = resolve_to_commit_maybe(repository, hint)?;
 
     Sum::create(
         repository,
