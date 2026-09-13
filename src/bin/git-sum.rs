@@ -15,7 +15,8 @@ use tracing::{debug,info,error};
 #[derive(Parser)]
 #[command(version, long_about = None)] // how to use the comment above?
 #[command(subcommand_negates_reqs = true)]
-#[command(args_conflicts_with_subcommands = true)] // positional arguments
+// I need -g to be usable with sumcommands:
+// #[command(args_conflicts_with_subcommands = true)] // positional arguments
 // ^^ this means that Factory produces command, and then ^^ those are called on it?
 struct Cli {
     #[command(flatten)]
