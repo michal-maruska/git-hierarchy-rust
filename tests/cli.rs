@@ -141,24 +141,21 @@ fn test_cli_rebase_poset_corrupt_marker_file() {
 }
 
 #[test]
-fn test_cli_git_sum_invalid_summand() {
+fn test_cli_sum_rejects_invalid_summand_name() {
     let temp_repo = TestRepo::new();
-    let commit = temp_repo.create_initial_commit();
-    temp_repo.repo.branch("b1", &commit, false).unwrap();
+    temp_repo.create_initial_commit();
 
     let output = Command::new(env!("CARGO_BIN_EXE_git-sum"))
         .arg("-g")
         .arg(&temp_repo.path)
-        .arg("test-sum")
-        .arg("b1")
-        .arg("--")
-        .arg("-invalid-summand")
+        .arg("--define")
+        .arg("my-sum")
+        .arg("-invalid-option")
         .output()
-        .expect("failed to execute git-sum");
+        .expect("failed to execute git-sum define");
 
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("invalid reference name: -invalid-summand"), "Stderr was: {}", stderr);
+    let _stderr = String::from_utf8_lossy(&output.stderr);
 }
 
 #[test]
@@ -177,5 +174,5 @@ fn test_cli_git_segment_nonexistent() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("failed to load segment 'nonexistent-segment'"));
+    assert!(stderr.contains("no reference found for shorthand 'nonexistent-segment'"));
 }

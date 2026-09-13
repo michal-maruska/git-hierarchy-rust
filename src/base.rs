@@ -190,6 +190,37 @@ pub fn to_branch<'repo>(repository: &'repo Repository, reference: &Reference<'re
         .unwrap()
 }
 
+/// for CLI
+pub fn resolve_user_commit<'repo>(repository: &'repo Repository, input: &str) -> Option<Commit<'repo>> {
+    if let Ok(sha) = Oid::from_str(input) {
+        if let Ok(commit) = repository.find_commit(sha) {
+            Some(commit)
+        } else {
+            debug!("couldn't find the commit {}", sha);
+            None
+        }
+    } else if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
+        // refname_to_id
+        Some(reference.peel_to_commit().unwrap())
+    } else {
+        debug!("couldn't find reference {}", input);
+        None
+    }
+}
+
+// fn take<>(x: impl IntoIterator<Item=&'a T>)
+pub fn resolve_to_commit_maybe<'repo, T: AsRef<str>>(
+    repository: &'repo Repository,
+    hint: Option<T>,
+) -> Result<Option<git2::Commit<'repo>>, git2::Error> {
+    let s = match hint {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+    Ok(resolve_user_commit(repository, s.as_ref()))
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
