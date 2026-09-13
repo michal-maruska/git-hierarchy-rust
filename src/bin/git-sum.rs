@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::exit;
 use clap::{Parser,Subcommand};
-use git2::{Repository,Reference,Oid};
+use git2::{Repository,Reference};
 use colored::Colorize;
 
 #[allow(unused_imports)]
