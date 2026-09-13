@@ -191,17 +191,17 @@ pub fn to_branch<'repo>(repository: &'repo Repository, reference: &Reference<'re
 }
 
 /// for CLI
-pub fn resolve_user_commit(repository: &Repository, input: &str) -> Option<Oid> {
+pub fn resolve_user_commit<'repo>(repository: &'repo Repository, input: &str) -> Option<Commit<'repo>> {
     if let Ok(sha) = Oid::from_str(input) {
         if let Ok(commit) = repository.find_commit(sha) {
-            Some(commit.id())
+            Some(commit)
         } else {
             debug!("couldn't find the commit {}", sha);
             None
         }
     } else if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
         // refname_to_id
-        Some(reference.target().unwrap())
+        Some(reference.peel_to_commit().unwrap())
     } else {
         debug!("couldn't find reference {}", input);
         None

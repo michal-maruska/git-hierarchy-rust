@@ -134,7 +134,7 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
     // no: either ref or sha
     let start = if let Some(s) = &args.start {
         // note: as_ref().unwrap()  vs unwrap().as_ref() ...
-        resolve_user_commit(repository, s).unwrap()
+        resolve_user_commit(repository, s).unwrap().id()
     } else {
         base.target().unwrap()
     };
@@ -143,7 +143,7 @@ fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Se
         args.head.as_ref().map_or(
             start,
             |x|
-            resolve_user_commit(repository, x).expect("input must be valid")
+            resolve_user_commit(repository, x).expect("input must be valid").id()
         );
 
     let res = Segment::create(repository, &args.segment_name, &base, start, head);
@@ -266,9 +266,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let gh = git_hierarchy::git_hierarchy::load(&repository, &args.segment_name).unwrap();
                 if let GitHierarchy::Segment(segment) = gh {
                     let oid =
-                        resolve_user_commit(&repository,
-                                            args.commit.as_ref())
-                        .unwrap();
+                        resolve_user_commit(&repository, args.commit.as_ref())
+                            .unwrap().id();
                     println!("restart from {} {}", args.commit, oid);
                     segment.set_start(&repository, oid);
                 }
