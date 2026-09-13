@@ -176,8 +176,7 @@ fn delete_sum(repository: &Repository, args: &DeleteCmd) {
     }
 }
 
-fn main()
-{
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let clip = Cli::parse();
     tracing_subscriber::fmt()
         .with_max_level(clip.verbosity)
@@ -188,7 +187,6 @@ fn main()
         Some(dir) => Repository::open(dir).expect("failed to find Git repository"),
     };
 
-
     if let Some(command) = clip.command {
         match command {
             Commands::List(_args) => {
@@ -198,39 +196,36 @@ fn main()
                 define_sum(&repository,
                            &args.name,
                            &args.components,
-                           args.head);
+                           args.head)?;
             }
             Commands::Delete(args) => {
-                delete_sum(&repository, &args);
+                delete_sum(&repository, &args)?;
             }
             Commands::Show(args) => {
-                describe_sum(&repository, &args);
+                describe_sum(&repository, &args)?;
             }
 
             Commands::Add(args) => {
-                add_to_sum(&repository, &args);
-                // load the definition
-                // allocate new numbers
-                // create the symbolic refs
+                add_to_sum(&repository, &args)?;
             }
             Commands::Remove(args) => {
-                remove_from_sum(&repository, &args);
+                remove_from_sum(&repository, &args)?;
             }
         }
     } else if let Some(args) = clip.define_or_show_args {
         if args.len() == 1 {
             let args = ShowArgs{name: args[0].clone()};
-            describe_sum(&repository, &args);
+            describe_sum(&repository, &args)?;
         } else {
             define_sum(&repository,
                        &args[0],
                        &args[1..],
-                       None);
-            // .expect("should not attempt to recreate existing sum");
+                       None)?;
         }
     } else {
         list_sums(&repository);
     }
+    Ok(())
 }
 
 fn list_sums(repository: &Repository) {
