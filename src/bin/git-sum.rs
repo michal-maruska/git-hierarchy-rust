@@ -280,23 +280,29 @@ where
     Ok(refs)
 }
 
-fn add_to_sum(repository: &Repository, args: &AddArgs) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<(), git2::Error> {
+    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name)?;
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs = resolve_references_from_user(repository, &args.summands);
-
-        sum.add_summands(repository, sumrefs.iter(), None).expect("failed to add summands");
+        let sumrefs = resolve_references_from_user(repository, &args.summands)?;
+        sum.add_summands(repository, sumrefs.iter(), None)?;
+        Ok(())
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
+        Err(git2::Error::from_str(&format!("{} is not a sum", args.name)))
     }
 }
 
-fn remove_from_sum(repository: &Repository, args: &RemoveArgs) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+fn remove_from_sum(repository: &Repository, args: &RemoveArgs) -> Result<(), git2::Error> {
+    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name)?;
 
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs = resolve_references_from_user(repository, &args.summands);
-        sum.remove_summands(repository, sumrefs.iter()).expect("failed to add summands");
+        let sumrefs = resolve_references_from_user(repository, &args.summands)?;
+        sum.remove_summands(repository, sumrefs.iter())?;
+        Ok(())
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
+        Err(git2::Error::from_str(&format!("{} is not a sum", args.name)))
     }
-
 }
 
 
