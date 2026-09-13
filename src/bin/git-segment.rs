@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use clap::{Parser,Subcommand,CommandFactory,FromArgMatches};
-use git_hierarchy::base::is_linear_ancestor;
+use git_hierarchy::base::{is_linear_ancestor,resolve_user_commit};
 use git2::{Oid, Repository, build::CheckoutBuilder};
 
 #[allow(unused_imports)]
@@ -126,23 +126,6 @@ struct DefineArgs {
     head: Option<String>,
 }
 
-fn resolve_user_commit(repository: &Repository, input: &str) -> Option<Oid> {
-    // either:
-    if let Ok(sha) = Oid::from_str(input) {
-        if let Ok(commit) = repository.find_commit(sha) {
-            Some(commit.id())
-        } else {
-            debug!("couldn't find the commit {}", sha);
-            None
-        }
-    } else if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
-        // refname_to_id
-        Some(reference.target().unwrap())
-    } else {
-        debug!("couldn't find reference {}", input);
-        None
-    }
-}
 
 fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Segment<'repo>, git2::Error>
 {
