@@ -230,29 +230,30 @@ fn list_sums(repository: &Repository) {
     }
 }
 
-fn describe_sum(repository: &Repository, args: &ShowArgs) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<(), git2::Error> {
+    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name)?;
     if let GitHierarchy::Sum(sum) = gh {
-        //        sum: &git_hierarchy::git_hierarchy::Sum<'repo>
-
         println!("sum {}", sum_fmt(sum.name()));
         let summands = sum.summands(repository);
         for s in &summands {
             println!("\t {}", s.name().unwrap());
         }
-        // report if clean or dirty.
-        let summands_gh : Vec<GitHierarchy<'_>> =
+
+        let summands_gh: Result<Vec<GitHierarchy<'_>>, _> =
             summands.into_iter().map(|x|
-                git_hierarchy::git_hierarchy::load(repository, x.name().unwrap()).unwrap()).collect();
+                git_hierarchy::git_hierarchy::load(repository, x.name().unwrap())).collect();
+        let summands_gh = summands_gh?;
+        // report if clean or dirty.
 
         let summands_refs = summands_gh.iter().collect();
 
         if let Err(_e) = check_summands(repository, &sum, &sum.parent_commits(), &summands_refs) {
             eprint!("Sum is not up-to-date");
         }
-
-        // prune non-existings summands ??? why?
-        // fn show_prune_definition(){unimplemented!()}
+        Ok(())
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
+        Err(git2::Error::from_str(&format!("{} is not a sum", args.name)))
     }
 }
 
