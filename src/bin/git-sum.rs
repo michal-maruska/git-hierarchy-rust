@@ -5,7 +5,7 @@ use git2::{Repository,Reference,Oid};
 use colored::Colorize;
 
 #[allow(unused_imports)]
-use git_hierarchy::git_hierarchy::{GitHierarchy,Sum,load,sums, sum_fmt};
+use git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load, sums, sum_fmt};
 use git_hierarchy::rebase::check_summands;
 
 
@@ -282,16 +282,16 @@ where
     S: AsRef<str>,
 {
     let mut refs = Vec::new();
-    for name in names {
-        let name_str = name.as_ref();
-        if !Segment::name_is_valid(name_str)? {
+    for x in names {
+        let name = x.as_ref();
+        if !Segment::name_is_valid(name)? {
             return Err(git2::Error::from_str(&format!(
                 "invalid reference name: {}",
-                name_str
+                name
             )));
         }
-        let reference = repository.resolve_reference_from_short_name(name_str)?;
-        refs.push(reference);
+        let r = repository.resolve_reference_from_short_name(name)?;
+        refs.push(r);
     }
     Ok(refs)
 }
