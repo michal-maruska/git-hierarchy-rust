@@ -178,3 +178,21 @@ fn test_cli_git_segment_nonexistent() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("no reference found for shorthand 'nonexistent-segment'"), "Stderr was: {}", stderr);
 }
+
+#[test]
+fn test_cli_segment_rejects_invalid_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--define")
+        .arg("--")
+        .arg("feature")
+        .arg("-invalid-base")
+        .output()
+        .expect("failed to execute git-segment define");
+
+    assert!(!output.status.success());
+}
