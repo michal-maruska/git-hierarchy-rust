@@ -305,9 +305,21 @@ fn remove_from_sum(repository: &Repository, args: &RemoveArgs) -> Result<(), git
 }
 
 
-/*
-fn git_sum_branches() {unimplemented!()}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use git_hierarchy::test_utils::TestRepo;
 
+    #[test]
+    fn test_resolve_references_rejects_invalid_names() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
 
-fn remove_from_sum() {unimplemented!()}
-*/
+        let invalid_names = vec!["-option-inject", "--flag"];
+        let res = resolve_references_from_user(repo, invalid_names);
+        match res {
+            Err(e) => assert!(e.to_string().contains("invalid reference name")),
+            Ok(_) => panic!("expected error for invalid reference name"),
+        }
+    }
+}
