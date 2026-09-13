@@ -139,17 +139,29 @@ fn define_sum<'repo,'a, T: AsRef<str> + 'a>(repository: &'repo Repository,
     Ok(())
 }
 
-fn delete_sum(repository: &Repository, args: &DeleteCmd) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.sum_name).unwrap();
+fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<(), git2::Error> {
+    let gh = git_hierarchy::git_hierarchy::load(repository, &args.sum_name)?;
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
-        // drop all summands
-        sum.reference.borrow_mut().delete().unwrap();
-        for mut summand in sum.summands { // (repository)
-            summand.delete().expect("should be able to drop summand reference");
-            // sum.reference.borrow_mut().delete();
+        sum.reference.borrow_mut().delete()?;
+
+        let mut first_err = None;
+        for mut summand in sum.summands {
+            if let Err(e) = summand.delete() {
+                eprintln!("{}: {}", Colorize::red("failed to drop summand reference"), e);
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
         }
+        if let Some(e) = first_err {
+            return Err(e);
+        }
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.sum_name);
+        return Err(git2::Error::from_str(&format!("{} is not a sum", args.sum_name)));
     }
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
