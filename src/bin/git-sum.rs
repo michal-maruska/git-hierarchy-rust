@@ -273,40 +273,99 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) {
     }
 }
 
-// summands: Vec<String>,
-fn resolve_references_from_user<'repo, S, VS, >(repository: &'repo Repository, names: VS) -> Vec<Reference<'repo>>
-where VS: IntoIterator<Item = S>,
-    S: AsRef<str>
+fn resolve_references_from_user<'repo, S, VS>(
+    repository: &'repo Repository,
+    names: VS,
+) -> Result<Vec<Reference<'repo>>, git2::Error>
+where
+    VS: IntoIterator<Item = S>,
+    S: AsRef<str>,
 {
-    // resolve the given references
-    names.into_iter().map(|x| {
-        repository.resolve_reference_from_short_name(x.as_ref()).unwrap()
-    }).collect()
+    let mut refs = Vec::new();
+    for name in names {
+        let name_str = name.as_ref();
+        if !Segment::name_is_valid(name_str)? {
+            return Err(git2::Error::from_str(&format!(
+                "invalid reference name: {}",
+                name_str
+            )));
+        }
+        let reference = repository.resolve_reference_from_short_name(name_str)?;
+        refs.push(reference);
+    }
+    Ok(refs)
 }
 
 fn add_to_sum(repository: &Repository, args: &AddArgs) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+    let gh = match git_hierarchy::git_hierarchy::load(repository, &args.name) {
+        Ok(gh) => gh,
+        Err(e) => {
+            eprintln!("{}: {}", Colorize::red("failed to load sum"), e);
+            exit(1);
+        }
+    };
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs = resolve_references_from_user(repository, &args.summands);
+        let sumrefs = match resolve_references_from_user(repository, &args.summands) {
+            Ok(refs) => refs,
+            Err(e) => {
+                eprintln!("{}: {}", Colorize::red("failed to resolve summands"), e);
+                exit(1);
+            }
+        };
 
-        sum.add_summands(repository, sumrefs.iter(), None).expect("failed to add summands");
+        if let Err(e) = sum.add_summands(repository, sumrefs.iter(), None) {
+            eprintln!("{}: {}", Colorize::red("failed to add summands"), e);
+            exit(1);
+        }
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
+        exit(1);
     }
 }
 
 fn remove_from_sum(repository: &Repository, args: &RemoveArgs) {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name).unwrap();
+    let gh = match git_hierarchy::git_hierarchy::load(repository, &args.name) {
+        Ok(gh) => gh,
+        Err(e) => {
+            eprintln!("{}: {}", Colorize::red("failed to load sum"), e);
+            exit(1);
+        }
+    };
 
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs = resolve_references_from_user(repository, &args.summands);
-        sum.remove_summands(repository, sumrefs.iter()).expect("failed to add summands");
+        let sumrefs = match resolve_references_from_user(repository, &args.summands) {
+            Ok(refs) => refs,
+            Err(e) => {
+                eprintln!("{}: {}", Colorize::red("failed to resolve summands"), e);
+                exit(1);
+            }
+        };
+        if let Err(e) = sum.remove_summands(repository, sumrefs.iter()) {
+            eprintln!("{}: {}", Colorize::red("failed to remove summands"), e);
+            exit(1);
+        }
+    } else {
+        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
+        exit(1);
     }
-
 }
 
 
-/*
-fn git_sum_branches() {unimplemented!()}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use git_hierarchy::test_utils::TestRepo;
 
+    #[test]
+    fn test_resolve_references_rejects_invalid_names() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
 
-fn remove_from_sum() {unimplemented!()}
-*/
+        let invalid_names = vec!["-option-inject", "--flag"];
+        let res = resolve_references_from_user(repo, invalid_names);
+        match res {
+            Err(e) => assert!(e.to_string().contains("invalid reference name")),
+            Ok(_) => panic!("expected error for invalid reference name"),
+        }
+    }
+}
