@@ -1,14 +1,12 @@
 use std::path::PathBuf;
 use clap::{Parser,Subcommand,CommandFactory,FromArgMatches};
 use git_hierarchy::base::{is_linear_ancestor,resolve_user_commit};
-use git2::{Oid, Repository, build::CheckoutBuilder};
+use git2::{Repository, build::CheckoutBuilder};
+
+use git_hierarchy::git_hierarchy::{GitHierarchy,Segment,segments, load, segment_fmt};
 
 #[allow(unused_imports)]
-use git_hierarchy::git_hierarchy::{GitHierarchy,Segment,segments,load,
-                                   segment_fmt,
-};
-
-use tracing::debug;
+use tracing::{debug,info};
 
 /// Operate on segments or 1 segment
 #[derive(Parser)] // Debug
@@ -127,92 +125,82 @@ struct DefineArgs {
 }
 
 
-fn define<'repo> (repository: &'repo Repository, args: &DefineArgs) -> Result<Segment<'repo>, git2::Error>
+fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Segment<'repo>, git2::Error>
 {
+    if !Segment::name_is_valid(&args.segment_name)? || !Segment::name_is_valid(&args.base)? {
+        return Err(git2::Error::from_str("invalid reference name"));
+    }
     let base = repository.resolve_reference_from_short_name(&args.base)?;
 
-    // no: either ref or sha
     let start = if let Some(s) = &args.start {
         // note: as_ref().unwrap()  vs unwrap().as_ref() ...
-        resolve_user_commit(repository, s).unwrap().id()
+        resolve_user_commit(repository, s).ok_or(git2::Error::from_str("failed to resolve start commit"))?.id()
     } else {
-        base.target().unwrap()
+        base.target().ok_or_else(|| git2::Error::from_str("base reference target missing"))?
     };
 
-    let head =
-        args.head.as_ref().map_or(
-            start,
-            |x|
-            resolve_user_commit(repository, x).expect("input must be valid").id()
-        );
+    let head = if let Some(x) = &args.head {
+        resolve_user_commit(repository, x).ok_or(git2::Error::from_str("failed to resolve head commit"))?.id()
+    } else {
+        start
+    };
 
-    let res = Segment::create(repository, &args.segment_name, &base, start, head);
-
-    println!("create {} in {:?}", args.segment_name, repository.path());
-    println!("base = {}, start {} = {}", base.name().unwrap(), start, head);
-    res
+    info!("create {} in {:?}", args.segment_name, repository.path());
+    info!("base = {}, start {} = {}", base.name().unwrap_or("??"), start, head);
+    Segment::create(repository, &args.segment_name, &base, start, head)
 }
 
-fn delete(repository: &Repository, args: &DeleteCmd) {
-    // check sums above
-    // segments based on it.
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.segment_name).unwrap();
+fn delete(repository: &Repository, args: &DeleteCmd) -> Result<(), git2::Error> {
+    let gh = load(repository, &args.segment_name)?;
     if let GitHierarchy::Segment(mut segment) = gh {
         println!("Delete {} in {:?}", args.segment_name, repository.path());
 
-        segment.base.borrow_mut().delete().unwrap();
-        segment._start.delete().unwrap();
-        segment.reference.borrow_mut().delete().unwrap();
+        segment.base.borrow_mut().delete()?;
+        segment._start.delete()?;
+        segment.reference.borrow_mut().delete()?;
+        Ok(())
+    } else {
+        return Err(git2::Error::from_str(&format!("{} is not a segment", args.segment_name)))
     }
 }
 
 // see list_segment in git-walk-down.rs
-fn describe(repository: &Repository, segment_name: &str) {
+fn describe(repository: &Repository, segment_name: &str) -> Result<(), git2::Error> {
+    let gh = load(repository, segment_name)?;
 
-    let gh = git_hierarchy::git_hierarchy::load(repository, segment_name).unwrap();
     if let GitHierarchy::Segment(segment) = gh {
         println!("Segment {} in {:?}", segment_fmt(segment_name), repository.path());
 
-        // todo: drop the refs/
-        println!("Base {}", segment.base(repository).name().unwrap());
+        println!("Base {}", segment.base(repository).name().unwrap_or(""));
         println!("Start {} lenght {} {}", segment.start(),
-                 segment.iter(repository).unwrap().count(),
+                 segment.iter(repository)?.count(),
                  if segment.uptodate(repository) { "clean" } else { "dirty"}
         );
-        // check if start is ancestor !!!
         if !is_linear_ancestor(repository,
             segment.start(),
-            segment.reference.borrow().peel_to_commit().unwrap().id()
-        ).unwrap() {
-            // quite an error!
-            panic!("Start is not ancestor!");
-            // println!("Start is not ancestor!");
+            segment.reference.borrow().peel_to_commit()?.id()
+        )? {
+            return Err(git2::Error::from_str("Start is not ancestor!"));
         }
 
-        // uptodate?
-        // fixme: if not ancestor, is this intended?
-        for oid in segment.iter(repository).unwrap() {
-            let oid = oid.unwrap();
-            let commit = repository.find_commit(oid).unwrap();
-            println!("{}: {}", oid, commit.summary().unwrap());
+        for oid in segment.iter(repository)? {
+            let oid = oid?;
+            let commit = repository.find_commit(oid)?;
+            println!("{}: {}", oid, commit.summary().unwrap_or(""));
         }
+        Ok(())
     } else {
-        println!("Segment {} does not exist", segment_fmt(segment_name));
+        info!("Segment {} does not exist", segment_fmt(segment_name));
+        return Err(git2::Error::from_str(&format!("{} is not a segment", segment_name)))
     }
 }
 
-fn list_segments(repository: &Repository) {
-    match segments(repository) {
-        Ok(ref_iterator) => {
-            for r in ref_iterator {
-                println!("{}", segment_fmt(&r));
-            }
-        }
-        Err(e) => {
-            eprintln!("failed to list segments: {}", e);
-            std::process::exit(1);
-        }
+fn list_segments(repository: &Repository) -> Result<(), git2::Error> {
+    let ref_iterator = segments(repository)?;
+    for r in ref_iterator {
+        println!("{}", segment_fmt(&r));
     }
+    Ok(())
 }
 
 
@@ -260,41 +248,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(command) = clip.command {
         match command {
             Commands::List(_args) => {
-                list_segments(&repository);
+                list_segments(&repository)?;
             }
             Commands::Restart(args) => {
-                let gh = git_hierarchy::git_hierarchy::load(&repository, &args.segment_name).unwrap();
+                let gh = load(&repository, &args.segment_name)?;
                 if let GitHierarchy::Segment(segment) = gh {
-                    let oid =
-                        resolve_user_commit(&repository, args.commit.as_ref())
-                            .unwrap().id();
+                    let commit = resolve_user_commit(&repository, args.commit.as_ref())
+                        .ok_or_else(|| git2::Error::from_str("failed to resolve commit"))?;
+                    let oid = commit.id();
                     println!("restart from {} {}", args.commit, oid);
                     segment.set_start(&repository, oid);
                 }
 
             },
             Commands::Update(args) => {
-                let gh = git_hierarchy::git_hierarchy::load(&repository, &args.segment_name).unwrap();
+                let gh = load(&repository, &args.segment_name)?;
                 if let GitHierarchy::Segment(segment) = gh {
-                    let new_base = repository.resolve_reference_from_short_name(&args.new_base)
-                        .expect("new base should exist");
+                    let new_base = repository.resolve_reference_from_short_name(&args.new_base)?;
                     println!("rebase from {} -> {} {}", args.new_base,
-                             new_base.name().unwrap(),
+                             new_base.name().unwrap_or(""),
                              if args.rebase {"immediately"} else {""});
                     segment.set_base(&repository, &new_base);
                 }
             },
             Commands::Delete(args) => {
-                delete(&repository, &args);
+                delete(&repository, &args)?;
             },
             Commands::Create(args) => {
                 // checkout immediate
-                let seg = define(&repository, &args).expect("failed to define new segment");
+                let seg = define(&repository, &args)?;
 
                 // try to switch
                 // let reference = seg.reference_clone(repository);
-                let name = seg.reference.borrow().name().unwrap().to_string();
-                let reference = repository.find_reference(&name).expect("should contain existing reference");
+                let name = seg.reference.borrow().name().ok_or("reference missing name")?.to_string();
+                let reference = repository.find_reference(&name)?;
                 println!("should checkout now {}", name);
 
                 // 1. Checkout the TARGET tree first (while HEAD still points at the old ref)
@@ -303,17 +290,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 repository.checkout_tree(target_tree.as_object(), Some(CheckoutBuilder::new().safe()))?;
 
                 // 2. THEN move HEAD to point at the new ref
-                repository.set_head(&name)?; // expect("should set HEAD");
+                repository.set_head(&name)?;
             }
             Commands::Define(args) => {
-                define(&repository, &args).expect("failed to define new segment");
+                define(&repository, &args)?;
             },
         }
     } else if let Some(args) = clip.define_or_show_args {
         if args.is_empty() {
             unreachable!("cannot be Some, and empty vector");
         } else if args.len() == 1 {
-            describe(&repository, &args[0]);
+            describe(&repository, &args[0])?;
         } else {
             // convert....
             let def = DefineArgs {
@@ -325,10 +312,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 start: if args.len() > 2 {Some(args[2].clone())} else {None},
                 head: if args.len() > 3 {Some(args[3].clone())} else {None},
             };
-            define(&repository, &def).unwrap();
+            define(&repository, &def)?;
         }
     } else {
-        list_segments(&repository);
+        list_segments(&repository)?;
     }
     // else nothing. Or list?
     // return Err(error.into());
