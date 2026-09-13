@@ -140,7 +140,7 @@ fn define_sum<'repo,'a, T: AsRef<str> + 'a>(repository: &'repo Repository,
 }
 
 fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<(), git2::Error> {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.sum_name)?;
+    let gh = load(repository, &args.sum_name)?;
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
         sum.reference.borrow_mut().delete()?;
@@ -231,7 +231,7 @@ fn list_sums(repository: &Repository) {
 }
 
 fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<(), git2::Error> {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name)?;
+    let gh = load(repository, &args.name)?;
     if let GitHierarchy::Sum(sum) = gh {
         println!("sum {}", sum_fmt(sum.name()));
         let summands = sum.summands(repository);
@@ -240,8 +240,7 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<(), git2::Er
         }
 
         let summands_gh: Result<Vec<GitHierarchy<'_>>, _> =
-            summands.into_iter().map(|x|
-                git_hierarchy::git_hierarchy::load(repository, x.name().unwrap())).collect();
+            summands.into_iter().map(|x| load(repository, x.name().unwrap())).collect();
         let summands_gh = summands_gh?;
         // report if clean or dirty.
 
@@ -281,7 +280,7 @@ where
 }
 
 fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<(), git2::Error> {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name)?;
+    let gh = load(repository, &args.name)?;
     if let GitHierarchy::Sum(mut sum) = gh {
         let sumrefs = resolve_references_from_user(repository, &args.summands)?;
         sum.add_summands(repository, sumrefs.iter(), None)?;
@@ -293,7 +292,7 @@ fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<(), git2::Error
 }
 
 fn remove_from_sum(repository: &Repository, args: &RemoveArgs) -> Result<(), git2::Error> {
-    let gh = git_hierarchy::git_hierarchy::load(repository, &args.name)?;
+    let gh = load(repository, &args.name)?;
 
     if let GitHierarchy::Sum(mut sum) = gh {
         let sumrefs = resolve_references_from_user(repository, &args.summands)?;
