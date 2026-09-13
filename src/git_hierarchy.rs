@@ -814,7 +814,7 @@ mod tests {
             "existing-branch",
             base_branch.get(),
             commit.id(),
-            commit.id(),
+            Oid::from_str("deadbeef").unwrap(),
         );
         assert!(res.is_err());
 
