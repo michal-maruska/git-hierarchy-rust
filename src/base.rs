@@ -208,6 +208,18 @@ pub fn resolve_user_commit<'repo>(repository: &'repo Repository, input: &str) ->
     }
 }
 
+// fn take<>(x: impl IntoIterator<Item=&'a T>)
+pub fn resolve_to_commit_maybe<'repo, T: AsRef<str>>(
+    repository: &'repo Repository,
+    hint: Option<T>,
+) -> Result<Option<git2::Commit<'repo>>, git2::Error> {
+    let s = match hint {
+        Some(s) => s,
+        None => return Ok(None),
+    };
+    Ok(resolve_user_commit(repository, s.as_ref()))
+}
+
 
 #[cfg(test)]
 mod tests {
