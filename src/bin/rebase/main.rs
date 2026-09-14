@@ -451,6 +451,21 @@ struct Cli {
     skip: Vec<String>
 }
 
+fn resolve_reference_names_from_user(
+    repository: &Repository,
+    names: &mut [String],
+) -> Result<(), git2::Error> {
+    for e in names {
+        Segment::check_name_is_valid(e)?;
+        if let Ok(r) = repository.resolve_reference_from_short_name(e) {
+            if let Some(n) = r.name() {
+                *e = n.to_string();
+            }
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = Cli::parse();
     init_tracing(cli.verbose);
@@ -489,27 +504,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     debug!("root is {}", root.node_identity());
 
-    if !cli.ignore.is_empty() {
-        for e in cli.ignore.iter_mut() {
-            Segment::check_name_is_valid(e)?;
-            if let Ok(r) = repository.resolve_reference_from_short_name(e) {
-                if let Some(n) = r.name() {
-                    *e = n.to_string();
-                }
-            }
-        }
-    }
-
-    if !cli.skip.is_empty() {
-        for e in cli.skip.iter_mut() {
-            Segment::check_name_is_valid(e)?;
-            if let Ok(r) = repository.resolve_reference_from_short_name(e) {
-                if let Some(n) = r.name() {
-                    *e = n.to_string();
-                }
-            }
-        }
-    }
+    resolve_reference_names_from_user(&repository, &mut cli.ignore)?;
+    resolve_reference_names_from_user(&repository, &mut cli.skip)?;
 
     if let Err(e) = rebase_tree(&repository,
                                 // why?
