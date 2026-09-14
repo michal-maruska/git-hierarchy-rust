@@ -339,13 +339,24 @@ fn main() -> anyhow::Result<()> {
 
     init_tracing(cli.verbose);
 
-    let repository = open_repository(cli.directory.as_ref()).unwrap();
+    let repository = open_repository(cli.directory.as_ref())?;
     if !cli.replace.is_empty() {
+        for r in &cli.replace {
+            if !Segment::name_is_valid(r)? {
+                anyhow::bail!("invalid reference name: {}", r);
+            }
+        }
         // also, in this case I don't start *implicitly* by HEAD.
         if cli.root_reference.is_none() {
             eprintln!("when --replace is used, the top must be stated ... {}",
-                      current_branch(&repository).unwrap());
+                      current_branch(&repository).unwrap_or_default());
             std::process::exit(1);
+        }
+    }
+
+    if let Some(r) = &cli.root_reference {
+        if !Segment::name_is_valid(r)? {
+            anyhow::bail!("invalid reference name: {}", r);
         }
     }
 
