@@ -334,28 +334,32 @@ fn current_branch(repository: &'_ Repository) -> Option<String> {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), git2::Error> {
     let cli = Cli::parse();
 
     init_tracing(cli.verbose);
 
-    let repository = open_repository(cli.directory.as_ref()).unwrap();
+    let repository = open_repository(cli.directory.as_ref())?;
     if !cli.replace.is_empty() {
+        for r in &cli.replace {
+            Segment::check_name_is_valid(r)?;
+        }
         // also, in this case I don't start *implicitly* by HEAD.
         if cli.root_reference.is_none() {
             eprintln!("when --replace is used, the top must be stated ... {}",
-                      current_branch(&repository).unwrap());
-            std::process::exit(1);
+                      current_branch(&repository).unwrap_or_default());
+            return Err(git2::Error::from_str("root not specified"));
         }
     }
 
     let root = match cli.root_reference {
         Some(r) => r,
         None => {
-            let head = current_branch(&repository).ok_or_else(|| anyhow::anyhow!("no current branch chosen"))?;
+            let head = current_branch(&repository).ok_or_else(|| git2::Error::from_str("no current branch chosen"))?;
             info!("Start from the HEAD = {}", head);
             head
         }};
+    Segment::check_name_is_valid(&root)?;
 
     info!("Start from the HEAD = {}", &root);
 
