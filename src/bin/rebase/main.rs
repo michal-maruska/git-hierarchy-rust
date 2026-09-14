@@ -466,15 +466,15 @@ fn resolve_reference_names_from_user(
     Ok(())
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = Cli::parse();
     init_tracing(cli.verbose);
 
-    let repository = open_repository(cli.directory.as_ref()).expect("should find the Git directory");
+    let repository = open_repository(cli.directory.as_ref())?;
 
     if cli.cont {
         // old: rebase_continue_git1(repository, &segment_name)
-        rebase_segment_continue(&repository).unwrap();
+        rebase_segment_continue(&repository)?;
     } else {
         // fixme: what if SUM?
         match segment_to_continue(&repository) {
@@ -490,10 +490,15 @@ fn main() {
         }
     }
 
-    let root = cli.root_reference
-        .unwrap_or_else(|| repository.head().unwrap()
-                        // if in detached HEAD -- will panic:
-                        .name().unwrap().to_owned());
+    let root = match cli.root_reference {
+        Some(r) => r,
+        None => repository
+            .head()?
+            .name()
+            .ok_or_else(|| git2::Error::from_str("HEAD reference missing name"))?
+            .to_owned(),
+    };
+    Segment::check_name_is_valid(&root)?;
 
     let root = GitHierarchy::Name(root); // todo: load?
 
@@ -514,6 +519,7 @@ fn main() {
     } else {
         eprintln!("{}",Colorize::green("Done"));
     }
+    Ok(())
 }
 
 #[cfg(test)]
