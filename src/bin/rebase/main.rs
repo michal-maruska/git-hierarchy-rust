@@ -477,9 +477,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let root = match cli.root_reference {
         Some(r) => {
-            if !Segment::name_is_valid(&r)? {
-                return Err(git2::Error::from_str("invalid reference name").into());
-            }
+            Segment::check_name_is_valid(&r)?;
             r
         }
         None => repository
@@ -495,9 +493,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if !cli.ignore.is_empty() {
         for e in cli.ignore.iter_mut() {
-            if !Segment::name_is_valid(e)? {
-                return Err(git2::Error::from_str("invalid reference name").into());
-            }
+            Segment::check_name_is_valid(e)?;
             if let Ok(r) = repository.resolve_reference_from_short_name(e) {
                 if let Some(n) = r.name() {
                     *e = n.to_string();
@@ -508,9 +504,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if !cli.skip.is_empty() {
         for e in cli.skip.iter_mut() {
-            if !Segment::name_is_valid(e)? {
-                return Err(git2::Error::from_str("invalid reference name").into());
-            }
+            Segment::check_name_is_valid(e)?;
             if let Ok(r) = repository.resolve_reference_from_short_name(e) {
                 if let Some(n) = r.name() {
                     *e = n.to_string();
