@@ -476,16 +476,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let root = match cli.root_reference {
-        Some(r) => {
-            Segment::check_name_is_valid(&r)?;
-            r
-        }
+        Some(r) => r,
         None => repository
             .head()?
             .name()
             .ok_or_else(|| git2::Error::from_str("HEAD reference missing name"))?
             .to_owned(),
     };
+    Segment::check_name_is_valid(&root)?;
 
     let root = GitHierarchy::Name(root); // todo: load?
 

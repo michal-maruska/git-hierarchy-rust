@@ -352,10 +352,6 @@ fn main() -> Result<(), git2::Error> {
         }
     }
 
-    if let Some(r) = &cli.root_reference {
-        Segment::check_name_is_valid(r)?;
-    }
-
     let root = match cli.root_reference {
         Some(r) => r,
         None => {
@@ -363,6 +359,7 @@ fn main() -> Result<(), git2::Error> {
             info!("Start from the HEAD = {}", head);
             head
         }};
+    Segment::check_name_is_valid(&root)?;
 
     info!("Start from the HEAD = {}", &root);
 
