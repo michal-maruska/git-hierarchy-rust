@@ -129,6 +129,13 @@ impl<'repo> Segment<'repo> {
         git2::Branch::name_is_valid(name)
     }
 
+    pub fn check_name_is_valid(name: &str) -> Result<(), Error> {
+        if !Self::name_is_valid(name)? {
+            return Err(Error::from_str(&format!("invalid reference name: {}", name)));
+        }
+        Ok(())
+    }
+
     pub fn create(repository: &'repo Repository,
                   name: &str,
                   // why the same?
