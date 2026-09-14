@@ -131,7 +131,7 @@ impl<'repo> Segment<'repo> {
 
     pub fn check_name_is_valid(name: &str) -> Result<(), Error> {
         if !Self::name_is_valid(name)? {
-            return Err(Error::from_str("invalid reference name"));
+            return Err(Error::from_str(&format!("invalid reference name: {}", name)));
         }
         Ok(())
     }

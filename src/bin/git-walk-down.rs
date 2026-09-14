@@ -334,7 +334,7 @@ fn current_branch(repository: &'_ Repository) -> Option<String> {
     }
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<(), git2::Error> {
     let cli = Cli::parse();
 
     init_tracing(cli.verbose);
@@ -342,9 +342,7 @@ fn main() -> anyhow::Result<()> {
     let repository = open_repository(cli.directory.as_ref())?;
     if !cli.replace.is_empty() {
         for r in &cli.replace {
-            if !Segment::name_is_valid(r)? {
-                anyhow::bail!("invalid reference name: {}", r);
-            }
+            Segment::check_name_is_valid(r)?;
         }
         // also, in this case I don't start *implicitly* by HEAD.
         if cli.root_reference.is_none() {
@@ -355,15 +353,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     if let Some(r) = &cli.root_reference {
-        if !Segment::name_is_valid(r)? {
-            anyhow::bail!("invalid reference name: {}", r);
-        }
+        Segment::check_name_is_valid(r)?;
     }
 
     let root = match cli.root_reference {
         Some(r) => r,
         None => {
-            let head = current_branch(&repository).ok_or_else(|| anyhow::anyhow!("no current branch chosen"))?;
+            let head = current_branch(&repository).ok_or_else(|| git2::Error::from_str("no current branch chosen"))?;
             info!("Start from the HEAD = {}", head);
             head
         }};
