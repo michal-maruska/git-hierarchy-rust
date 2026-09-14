@@ -211,6 +211,8 @@ fn test_cli_rebase_poset_rejects_invalid_root_reference() {
         .expect("failed to execute git-rebase-poset");
 
     assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid reference name: -invalid-ref"), "Stderr was: {}", stderr);
 }
 
 #[test]
@@ -227,4 +229,54 @@ fn test_cli_walk_down_rejects_invalid_root_reference() {
         .expect("failed to execute git-walk-down");
 
     assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid reference name: -invalid-ref"), "Stderr was: {}", stderr);
+}
+
+#[test]
+fn test_cli_rebase_poset_valid() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-segment define");
+    assert!(output.status.success());
+
+    let rebase_output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset");
+
+    assert!(rebase_output.status.success(), "Stderr: {}", String::from_utf8_lossy(&rebase_output.stderr));
+}
+
+#[test]
+fn test_cli_walk_down_valid() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-segment define");
+    assert!(output.status.success());
+
+    let walk_output = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
+        .arg("-D")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-walk-down");
+
+    assert!(walk_output.status.success(), "Stderr: {}", String::from_utf8_lossy(&walk_output.stderr));
 }
