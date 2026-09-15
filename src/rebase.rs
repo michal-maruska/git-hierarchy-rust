@@ -575,6 +575,24 @@ fn match_commits_to_references<'repo>( //  A,B
 }
 
 
+pub fn match_summands_to_parents<'repo, 'a>(
+    repository: &'repo Repository,
+    parent_commits: &[Oid],
+    summands: &'a Vec<&'a GitHierarchy<'repo>>) -> (Vec<Oid>, Vec<&'a &'a GitHierarchy<'repo>>) {
+
+        // return ( /* mapping*/ loose_parents, moved_components, )
+    iterator_symmetric_difference_indirect(
+        parent_commits.iter().copied(),
+        summands, // & fails
+        // mapping
+        |gh| {
+            debug!("mapping {:?} to {:?}", gh.node_identity(),
+                gh.commit().unwrap().id());
+            gh.commit().unwrap().id()
+        }
+    )
+}
+
 pub fn check_summands<'repo>(
     repository: &'repo Repository,
     sum: &Sum<'repo>,
@@ -584,16 +602,7 @@ pub fn check_summands<'repo>(
 {
     // I need a mapping function
     // iter1, iter2, map-domain2-to-domain1
-    let (unknown_parents, summands_away) = iterator_symmetric_difference_indirect(
-        parent_commits.iter().copied(),
-        summands, // & fails
-        // mapping
-        |gh| {
-            debug!("mapping {:?} to {:?}", gh.node_identity(),
-                gh.commit().unwrap().id());
-            gh.commit().unwrap().id()
-        }
-    );
+    let (unknown_parents, summands_away) = match_summands_to_parents(repository, parent_commits, summands);
 
     // now map permissively:
     // if the summand moved up.
