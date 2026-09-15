@@ -59,9 +59,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if !segment.uptodate(&repository) {
 
                         // the base is off.
-                        let name = segment.base(&repository).name().unwrap().to_string();
-                        if !tops.contains(&name) {
-                            tops.push(name);
+                        let base_ref = segment.base(&repository);
+                        let name = base_ref.name().ok_or_else(|| git2::Error::from_str("base reference has no name"))?;
+                        Segment::check_name_is_valid(name)?;
+                        let name_str = name.to_string();
+                        if !tops.contains(&name_str) {
+                            tops.push(name_str);
                         }
                     }
                 }
@@ -70,22 +73,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // todo: add the summands which are off.
                     let summands = sum.summands(&repository);
                     let summands_gh: Result<Vec<GitHierarchy<'_>>, _> =
-                        summands.into_iter().map(|x| load(&repository, x.name().unwrap())).collect();
+                        summands.into_iter().map(|x| {
+                            let summand_name = x.name().ok_or_else(|| git2::Error::from_str("summand reference has no name"))?;
+                            load(&repository, summand_name)
+                        }).collect();
                     let summands_gh = summands_gh?;
                     let summands_refs = summands_gh.iter().collect();
 
-                    let (unknown_parents, summands_away) = match_summands_to_parents(&repository,
+                    let (_unknown_parents, summands_away) = match_summands_to_parents(&repository,
                         &sum.parent_commits(), &summands_refs);
 
-                    summands_away.iter().for_each(
-                        |x| {
-                            let name = x.node_identity().to_string();
-                            if !tops.contains(&name) {
-                                tops.push(name);
-                            }})
+                    for x in summands_away {
+                        let name = x.node_identity();
+                        Segment::check_name_is_valid(name)?;
+                        let name_str = name.to_string();
+                        if !tops.contains(&name_str) {
+                            tops.push(name_str);
+                        }
+                    }
                 }
                 GitHierarchy::Reference(r) => {
                     let ref_name = r.name().unwrap_or(v);
+                    Segment::check_name_is_valid(ref_name)?;
                     let base_arg = format!("^{}", ref_name);
                     if !bases.contains(&base_arg) {
                         bases.push(base_arg);

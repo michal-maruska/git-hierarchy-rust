@@ -576,7 +576,7 @@ fn match_commits_to_references<'repo>( //  A,B
 
 
 pub fn match_summands_to_parents<'repo, 'a>(
-    repository: &'repo Repository,
+    _repository: &'repo Repository,
     parent_commits: &[Oid],
     summands: &'a Vec<&'a GitHierarchy<'repo>>) -> (Vec<Oid>, Vec<&'a &'a GitHierarchy<'repo>>) {
 
