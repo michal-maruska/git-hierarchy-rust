@@ -164,6 +164,15 @@ pub fn open_repository(directory_option: Option<&PathBuf>) -> Result<Repository,
     }
 }
 
+pub fn current_branch(repository: &Repository) -> Option<String> {
+    let head = repository.head().ok()?;
+    if head.is_branch() {
+        head.name().map(|n| n.to_owned())
+    } else {
+        None
+    }
+}
+
 // heads/XX  follows   refs/remotes/remote1/main    -> remote1-as-object, refs/remotes/remote1/main, "main"
 pub fn upstream_of<'repo>(repository: &'repo Repository, branch: &Branch<'repo>) -> Option<(Remote<'repo>, Branch<'repo>, String)>
 {

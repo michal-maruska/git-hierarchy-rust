@@ -6,6 +6,7 @@ use colored::Colorize;
 use std::collections::HashMap;
 
 use git_hierarchy::cli::ClapGitRepo;
+use git_hierarchy::base::current_branch;
 use git_hierarchy::utils::{init_tracing,concatenate};
 use git_hierarchy::base::{upstream_of, to_branch};
 /*
@@ -310,26 +311,6 @@ where
         process(repository,
                 vertex,
                 &hierarchy_graph.labeled_objects);
-    }
-}
-
-
-// detached head? -> None
-fn current_branch(repository: &'_ Repository) -> Option<String> {
-    let head = repository.head().unwrap();
-
-    if head.is_branch() {
-        let head = head.name().unwrap().to_owned();
-
-        // let head = repo.head().unwrap().name().unwrap();
-        //                       ^^^
-        // creates a temporary value which is freed while still in use
-        // what? that is no more temporary?
-        // let head = repo.head().unwrap();
-        // let head = head.name().unwrap().to_owned();
-        Some(head.to_owned())
-    } else {
-        None
     }
 }
 
