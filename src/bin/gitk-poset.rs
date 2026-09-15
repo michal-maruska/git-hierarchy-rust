@@ -1,11 +1,12 @@
 use clap::Parser;
+use git_hierarchy::graph::discover::NodeExpander;
 
 use std::process::{Command, exit};
 
 use git_hierarchy::cli::ClapGitRepo;
-use git_hierarchy::git_hierarchy::{GitHierarchy, Segment};
+use git_hierarchy::git_hierarchy::{GitHierarchy, Segment, load};
 use git_hierarchy::graph::discover_pet::find_hierarchy;
-use git_hierarchy::rebase::check_sum;
+use git_hierarchy::rebase::match_summands_to_parents;
 use git_hierarchy::base::current_branch;
 use git_hierarchy::utils::init_tracing;
 use tracing::info;
@@ -65,13 +66,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 GitHierarchy::Sum(sum) => {
-                    if check_sum(&repository, sum, &hierarchy_graph.labeled_objects).is_err() {
-                        // todo: add the summands which are off.
-                        let name = sum.name().to_string();
-                        if !tops.contains(&name) {
-                            tops.push(name);
-                        }
-                    }
+                    // if check_sum(&repository, sum, &hierarchy_graph.labeled_objects).is_err() {
+                    // todo: add the summands which are off.
+                    let summands = sum.summands(&repository);
+                    let summands_gh: Result<Vec<GitHierarchy<'_>>, _> =
+                        summands.into_iter().map(|x| load(&repository, x.name().unwrap())).collect();
+                    let summands_gh = summands_gh?;
+                    let summands_refs = summands_gh.iter().collect();
+
+                    let (unknown_parents, summands_away) = match_summands_to_parents(&repository,
+                        &sum.parent_commits(), &summands_refs);
+
+                    summands_away.iter().for_each(
+                        |x| {
+                            let name = x.node_identity().to_string();
+                            if !tops.contains(&name) {
+                                tops.push(name);
+                            }})
                 }
                 GitHierarchy::Reference(r) => {
                     let ref_name = r.name().unwrap_or(v);
