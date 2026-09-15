@@ -4,10 +4,10 @@ use git2::{Repository,Reference};
 use colored::Colorize;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
+use git_hierarchy::cli::ClapGitRepo;
 use git_hierarchy::utils::{init_tracing,concatenate};
-use git_hierarchy::base::{open_repository, upstream_of, to_branch};
+use git_hierarchy::base::{upstream_of, to_branch};
 /*
  note: ambiguous because of a conflict between a name from a glob
        import and an outer scope during import or macro resolution
@@ -34,9 +34,8 @@ use tracing::{debug, info};
 #[derive(Parser, Debug)]
 #[command(version,verbatim_doc_comment)]
 struct Cli {
-    // multiple short chars?
-    #[arg(long, short='D')]
-    directory: Option<PathBuf>,
+    #[command(flatten)]
+    git_repository: ClapGitRepo,
 
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -339,7 +338,7 @@ fn main() -> Result<(), git2::Error> {
 
     init_tracing(cli.verbose);
 
-    let repository = open_repository(cli.directory.as_ref())?;
+    let repository = cli.git_repository.open()?;
     if !cli.replace.is_empty() {
         for r in &cli.replace {
             Segment::check_name_is_valid(r)?;

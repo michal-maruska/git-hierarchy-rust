@@ -1,19 +1,18 @@
 #![deny(elided_lifetimes_in_paths)]
 
-use std::path::PathBuf;
 use clap::Parser;
 
 use std::process::exit;
+use git_hierarchy::cli::ClapGitRepo;
 use git_hierarchy::git_hierarchy::{GitHierarchy, Segment};
 use git_hierarchy::rebase::{check_segment, rebase_segment};
 use git_hierarchy::utils::{init_tracing};
-use git_hierarchy::base::open_repository;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    #[arg(long, short = 'g')]
-    directory: Option<PathBuf>,
+    #[command(flatten)]
+    git_repository: ClapGitRepo,
 
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
@@ -27,13 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let cli = Cli::parse();
     init_tracing(cli.verbose);
 
-    let repository = match open_repository(cli.directory.as_ref()) {
-        Ok(repository) => repository,
-        Err(e) => {
-            eprintln!("failed to open repository: {}", e);
-            exit(1);
-        }
-    };
+    let repository = cli.git_repository.open()?;
 
     if !Segment::name_is_valid(&cli.segment_name)? {
         eprintln!("invalid segment name: {}", cli.segment_name);

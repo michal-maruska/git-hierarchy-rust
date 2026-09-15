@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use clap::{Parser,Subcommand,CommandFactory,FromArgMatches};
 use git_hierarchy::base::{is_linear_ancestor,resolve_user_commit};
+use git_hierarchy::cli::ClapGitRepo;
 use git2::{Repository, build::CheckoutBuilder};
 
 use git_hierarchy::git_hierarchy::{GitHierarchy,Segment,segments, load, segment_fmt};
@@ -33,14 +33,6 @@ struct Cli {
 }
 
 
-#[derive(clap::Args)]
-#[command(name="git", about = None, long_about = None)]
-struct ClapGitRepo {
-    #[arg(long, short='g')]
-    #[arg(global=true)]
-    // why option? b/c otherwise .required(!has_default)
-    directory: Option<PathBuf>,
-}
 
 
 #[derive(Subcommand)]
@@ -239,10 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     */
 
-    let repository = match clip.git_repository.directory {
-        None => Repository::open_from_env().expect("failed to find Git repository"),
-        Some(dir) => Repository::open(dir).expect("failed to find Git repository"),
-    };
+    let repository = clip.git_repository.open()?;
 
     // this is an associated function, not a method
     if let Some(command) = clip.command {

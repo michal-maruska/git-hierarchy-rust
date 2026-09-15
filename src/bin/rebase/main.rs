@@ -17,7 +17,8 @@ use git2::{Branch, BranchType, Error, Commit, Reference, ReferenceFormat, Reposi
 #[allow(unused_imports)]
 use tracing::{span, Level, debug, info, warn,error};
 
-use ::git_hierarchy::base::{checkout_new_head_at, extract_remote_name, git_same_ref, open_repository, upstream_of, to_branch};
+use ::git_hierarchy::base::{checkout_new_head_at, extract_remote_name, git_same_ref, upstream_of, to_branch};
+use ::git_hierarchy::cli::{ClapGitRepo, resolve_reference_names_from_user};
 use ::git_hierarchy::execute::git_run;
 use ::git_hierarchy::utils::{iterator_symmetric_difference, init_tracing,
 };
@@ -34,7 +35,6 @@ use crate::graph::discover_pet::find_hierarchy;
 #[allow(unused)]
 use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load};
 
-use std::path::PathBuf;
 use std::process::exit;
 use colored::Colorize;
 
@@ -431,8 +431,8 @@ fn rebase_tree(repository: &Repository,
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    #[arg(long, short = 'g')]
-    directory: Option<PathBuf>,
+    #[command(flatten)]
+    git_repository: ClapGitRepo,
 
     #[arg(short='f', long="no-fetch" )]
     no_fetch: bool,
@@ -451,26 +451,11 @@ struct Cli {
     skip: Vec<String>
 }
 
-fn resolve_reference_names_from_user(
-    repository: &Repository,
-    names: &mut [String],
-) -> Result<(), git2::Error> {
-    for e in names {
-        Segment::check_name_is_valid(e)?;
-        if let Ok(r) = repository.resolve_reference_from_short_name(e) {
-            if let Some(n) = r.name() {
-                *e = n.to_string();
-            }
-        }
-    }
-    Ok(())
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = Cli::parse();
     init_tracing(cli.verbose);
 
-    let repository = open_repository(cli.directory.as_ref())?;
+    let repository = cli.git_repository.open()?;
 
     if cli.cont {
         // old: rebase_continue_git1(repository, &segment_name)
