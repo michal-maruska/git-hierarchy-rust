@@ -38,6 +38,54 @@ fn test_cli_help_git_rebase_segment() {
 }
 
 #[test]
+fn test_cli_help_gitk_poset() {
+    let output = Command::new(env!("CARGO_BIN_EXE_gitk-poset"))
+        .arg("--help")
+        .output()
+        .expect("failed to run gitk-poset");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage:"));
+}
+
+#[test]
+fn test_cli_gitk_poset_dry_run() {
+    use git_hierarchy::test_utils::create_commit;
+    use git_hierarchy::git_hierarchy::Segment;
+
+    let temp_repo = TestRepo::new();
+    let commit1 = create_commit(&temp_repo.repo, "commit 1", &[]);
+    let commit2 = create_commit(&temp_repo.repo, "commit 2", &[&commit1]);
+    let commit3 = create_commit(&temp_repo.repo, "commit 3", &[&commit2]);
+
+    let base_branch = temp_repo.repo.branch("main", &commit1, false).unwrap();
+
+    // Create segment "feature" based on "main", start=commit1, head=commit3 (not uptodate because base moved or start!=base target)
+    let _segment = Segment::create(
+        &temp_repo.repo,
+        "feature",
+        base_branch.get(),
+        commit2.id(),
+        commit3.id(),
+    ).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_gitk-poset"))
+        .arg("-D")
+        .arg(&temp_repo.path)
+        .arg("-n")
+        .arg("feature")
+        .output()
+        .expect("failed to run gitk-poset");
+
+    assert!(output.status.success(), "Stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("gitk "));
+    assert!(stdout.contains("feature"));
+    assert!(stdout.contains("-refs/heads/main"));
+}
+
+#[test]
 fn test_cli_help_git_rebase_poset() {
     let output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
         .arg("--help")

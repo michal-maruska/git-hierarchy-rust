@@ -38,6 +38,10 @@ path = "src/bin/git-segment.rs"
 name = "git-sum"
 path = "src/bin/git-sum.rs"
 
+[[bin]]
+name = "gitk-poset"
+path = "src/bin/gitk-poset.rs"
+
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }
 # path = "/home/michal/git/clap/",
