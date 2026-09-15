@@ -164,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(clip.verbosity)
         .init();
 
-    let repository = clip.git_repository.open().expect("failed to find Git repository");
+    let repository = clip.git_repository.open()?;
 
     if let Some(command) = clip.command {
         match command {

@@ -231,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     */
 
-    let repository = clip.git_repository.open().expect("failed to find Git repository");
+    let repository = clip.git_repository.open()?;
 
     // this is an associated function, not a method
     if let Some(command) = clip.command {

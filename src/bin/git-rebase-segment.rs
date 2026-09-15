@@ -26,13 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     let cli = Cli::parse();
     init_tracing(cli.verbose);
 
-    let repository = match cli.git_repository.open() {
-        Ok(repository) => repository,
-        Err(e) => {
-            eprintln!("failed to open repository: {}", e);
-            exit(1);
-        }
-    };
+    let repository = cli.git_repository.open()?;
 
     if !Segment::name_is_valid(&cli.segment_name)? {
         eprintln!("invalid segment name: {}", cli.segment_name);
