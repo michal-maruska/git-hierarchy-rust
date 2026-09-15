@@ -1,10 +1,10 @@
-use std::path::PathBuf;
 use std::process::exit;
 use clap::{Parser,Subcommand};
-use git2::{Repository,Reference};
+use git2::Repository;
 use colored::Colorize;
 
-use git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load, sums, sum_fmt};
+use git_hierarchy::cli::{ClapGitRepo, resolve_references_from_user};
+use git_hierarchy::git_hierarchy::{GitHierarchy, Sum, load, sums, sum_fmt};
 use git_hierarchy::rebase::check_summands;
 use git_hierarchy::base::resolve_to_commit_maybe;
 
@@ -33,13 +33,6 @@ struct Cli {
     define_or_show_args: Option<Vec<String>>,
 }
 
-#[derive(clap::Args)]
-#[command(name="git", about = None, long_about = None)]
-struct ClapGitRepo {
-    #[arg(long, short='g')]
-    #[arg(global=true)]
-    directory: Option<PathBuf>,
-}
 
 
 #[derive(Subcommand)]
@@ -171,10 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_max_level(clip.verbosity)
         .init();
 
-    let repository = match clip.git_repository.directory {
-        None => Repository::open_from_env().expect("failed to find Git repository"),
-        Some(dir) => Repository::open(dir).expect("failed to find Git repository"),
-    };
+    let repository = clip.git_repository.open().expect("failed to find Git repository");
 
     if let Some(command) = clip.command {
         match command {
@@ -257,28 +247,6 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<(), git2::Er
     }
 }
 
-fn resolve_references_from_user<'repo, S, VS>(
-    repository: &'repo Repository,
-    names: VS,
-) -> Result<Vec<Reference<'repo>>, git2::Error>
-where
-    VS: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    let mut refs = Vec::new();
-    for x in names {
-        let name = x.as_ref();
-        if !Segment::name_is_valid(name)? {
-            return Err(git2::Error::from_str(&format!(
-                "invalid reference name: {}",
-                name
-            )));
-        }
-        let r = repository.resolve_reference_from_short_name(name)?;
-        refs.push(r);
-    }
-    Ok(refs)
-}
 
 fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<(), git2::Error> {
     let gh = load(repository, &args.name)?;
@@ -306,21 +274,3 @@ fn remove_from_sum(repository: &Repository, args: &RemoveArgs) -> Result<(), git
 }
 
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use git_hierarchy::test_utils::TestRepo;
-
-    #[test]
-    fn test_resolve_references_rejects_invalid_names() {
-        let test_repo = TestRepo::new();
-        let repo = &test_repo.repo;
-
-        let invalid_names = vec!["-option-inject", "--flag"];
-        let res = resolve_references_from_user(repo, invalid_names);
-        match res {
-            Err(e) => assert!(e.to_string().contains("invalid reference name")),
-            Ok(_) => panic!("expected error for invalid reference name"),
-        }
-    }
-}

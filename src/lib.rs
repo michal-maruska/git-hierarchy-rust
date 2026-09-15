@@ -10,6 +10,7 @@ pub mod graph {
 pub mod permutation;
 pub mod utils;
 
+pub mod cli;
 pub mod collected;
 pub mod rebase;
 pub mod test_utils;
