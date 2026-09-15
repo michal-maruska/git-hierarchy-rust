@@ -46,6 +46,9 @@ done
 if [ -f "readme.md" ]; then
     cp readme.md "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/README"
 fi
+if [ -f "CHANGELOG.md" ]; then
+    cp CHANGELOG.md "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/CHANGELOG"
+fi
 if [ -f "debian/copyright" ]; then
     cp debian/copyright "$BUILD_DIR/usr/share/doc/$PACKAGE_NAME/copyright"
 fi
