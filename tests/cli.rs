@@ -258,3 +258,100 @@ fn test_cli_segment_update_rejects_invalid_base_name() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("invalid reference name: -invalid-base"), "Stderr was: {}", stderr);
 }
+
+#[test]
+fn test_cli_rebase_continuation_after_conflict() {
+    let temp_repo = TestRepo::new();
+
+    // 1. Create base commit on main with file1.txt: "1\n2\n3\n"
+    let file1_path = temp_repo.path.join("file1.txt");
+    std::fs::write(&file1_path, "1\n2\n3\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file1.txt")).unwrap();
+    index.write().unwrap();
+    let base_commit = temp_repo.create_commit("initial commit", &[]);
+    temp_repo.repo.branch("main", &base_commit, true).unwrap();
+
+    // 2. Define segment 'feature' with base 'main'
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-segment define");
+    assert!(output.status.success(), "git-segment define failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // 3. Create feature segment commits on feature branch:
+    temp_repo.repo.set_head("refs/heads/feature").unwrap();
+    temp_repo.repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+
+    // change 1: file1.txt modified to "1\nA\n2\n3\n"
+    std::fs::write(&file1_path, "1\nA\n2\n3\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file1.txt")).unwrap();
+    index.write().unwrap();
+    let change1_commit = temp_repo.create_commit("change 1", &[&base_commit]);
+
+    // change 3: file2.txt added with "file 2 content\n" (different file)
+    let file2_path = temp_repo.path.join("file2.txt");
+    std::fs::write(&file2_path, "file 2 content\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file2.txt")).unwrap();
+    index.write().unwrap();
+    let change3_commit = temp_repo.create_commit("change 3 on different file", &[&change1_commit]);
+
+    temp_repo.repo.reference("refs/heads/feature", change3_commit.id(), true, "update feature").unwrap();
+
+    // 4. Update main to change 2 (file1.txt modified to "1\n2 modified\n3\n")
+    temp_repo.repo.set_head("refs/heads/main").unwrap();
+    temp_repo.repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+
+    std::fs::write(&file1_path, "1\n2 modified\n3\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file1.txt")).unwrap();
+    index.write().unwrap();
+    let change2_commit = temp_repo.create_commit("change 2", &[&base_commit]);
+    temp_repo.repo.reference("refs/heads/main", change2_commit.id(), true, "update main").unwrap();
+
+    // 5. Run git-rebase-poset on feature
+    let output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("-f")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset");
+
+    assert!(!output.status.success(), "git-rebase-poset should have failed due to conflicts");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("conflicts detected"), "Stderr was: {}", stderr);
+
+    // 6. Resolve conflict in file1.txt to "1\nA\n2 modified\n3\n" and stage
+    std::fs::write(&file1_path, "1\nA\n2 modified\n3\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file1.txt")).unwrap();
+    index.write().unwrap();
+
+    // 7. Invoke continuation: git-rebase-poset -c feature
+    let cont_output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("-f")
+        .arg("-c")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset --continue");
+
+    assert!(cont_output.status.success(), "git-rebase-poset --continue failed: {}\nStdout: {}", String::from_utf8_lossy(&cont_output.stderr), String::from_utf8_lossy(&cont_output.stdout));
+
+    // 8. Verify resolved contents and final state on feature branch
+    temp_repo.repo.set_head("refs/heads/feature").unwrap();
+    temp_repo.repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+
+    let content1 = std::fs::read_to_string(&file1_path).unwrap();
+    assert_eq!(content1, "1\nA\n2 modified\n3\n");
+
+    let content2 = std::fs::read_to_string(&file2_path).unwrap();
+    assert_eq!(content2, "file 2 content\n");
+}
