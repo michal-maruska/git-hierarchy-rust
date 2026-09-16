@@ -148,11 +148,10 @@ fn remerge_sum<'repo>(
         if graphed_summands.len() > 2 {
             checkout_new_head_at(repository, None, &first.commit()?);
 
-            // use  git_run or?
             let mut cmdline = vec![
                 "merge",
                 "-m",
-                &message, // why is this not automatic?
+                &message,
                 "--rerere-autoupdate",
                 "--strategy",
                 "octopus",
@@ -164,15 +163,38 @@ fn remerge_sum<'repo>(
                 "ignore-space-change",
                 "--",
             ];
-            cmdline.extend(graphed_summands.iter().map(|s| s.node_identity()));
+            cmdline.extend(graphed_summands.iter().skip(1).map(|s| s.node_identity()));
 
             let status = git_run(repository, &cmdline)?;
-            // status.exit_ok().or_else(|e| Err(RebaseError::Default))?;
-            if status.code() != Some(0) {
-                return Err(RebaseError::Default);
+            if status.code() == Some(0) {
+                sum.reset(repository.head()?.resolve()?.target().unwrap());
+            } else {
+                info!("octopus merge failed for sum {}, trying piecewise merges", sum.name());
+                let _ = git_run(repository, &["merge", "--abort"]);
+                checkout_new_head_at(repository, None, &first.commit()?);
+
+                for i in 1..graphed_summands.len() {
+                    let series_message = format!("SERIES {i}: {message}");
+                    let summand_name = graphed_summands[i].node_identity();
+                    let cmdline = vec![
+                        "merge",
+                        "-m",
+                        &series_message,
+                        "--rerere-autoupdate",
+                        "--strategy-option",
+                        "patience",
+                        "--strategy-option",
+                        "ignore-space-change",
+                        "--",
+                        summand_name,
+                    ];
+                    let status = git_run(repository, &cmdline)?;
+                    if status.code() != Some(0) {
+                        return Err(RebaseError::Default);
+                    }
+                }
+                sum.reset(repository.head()?.resolve()?.target().unwrap());
             }
-            // "commit": move the SUM head with reflog message:
-            sum.reset(repository.head()?.resolve()?.target().unwrap());
         } else {
             // libgit2
             assert!(checkout_new_head_at(repository, None, &first.commit()?).is_none());
@@ -542,6 +564,72 @@ mod tests {
     }
 
     // marker to avoid merge conflicts
+
+    #[test]
+    fn test_remerge_sum_piecewise_fallback() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+        let sig = repo.signature().unwrap();
+
+        // c0: base commit
+        let base_file = test_repo.path.join("base.txt");
+        std::fs::write(&base_file, "base content\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("base.txt")).unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let c0_oid = repo.commit(Some("HEAD"), &sig, &sig, "c0", &tree, &[]).unwrap();
+        let c0 = repo.find_commit(c0_oid).unwrap();
+
+        // b1: creates file1.txt ("b1 content\n")
+        let file1 = test_repo.path.join("file1.txt");
+        std::fs::write(&file1, "b1 content\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("file1.txt")).unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let c1_oid = repo.commit(None, &sig, &sig, "c1", &tree, &[&c0]).unwrap();
+        let c1 = repo.find_commit(c1_oid).unwrap();
+        let b1 = repo.branch("b1", &c1, false).unwrap();
+
+        // b2: creates file2.txt ("b2 content\n")
+        let file2 = test_repo.path.join("file2.txt");
+        std::fs::write(&file2, "b2 content\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("file2.txt")).unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let c2_oid = repo.commit(None, &sig, &sig, "c2", &tree, &[&c0]).unwrap();
+        let c2 = repo.find_commit(c2_oid).unwrap();
+        let b2 = repo.branch("b2", &c2, false).unwrap();
+
+        // b3: creates file1.txt ("conflicting b3 content\n")
+        std::fs::write(&file1, "conflicting b3 content\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("file1.txt")).unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let c3_oid = repo.commit(None, &sig, &sig, "c3", &tree, &[&c0]).unwrap();
+        let c3 = repo.find_commit(c3_oid).unwrap();
+        let b3 = repo.branch("b3", &c3, false).unwrap();
+
+        let dummy_merge = create_commit(repo, "dummy merge", &[&c0]);
+        let refs = [b1.get(), b2.get(), b3.get()];
+        let sum = Sum::create(repo, "test-piecewise-sum", refs.into_iter(), Some(dummy_merge)).unwrap();
+
+        let mut object_map = HashMap::new();
+        object_map.insert("refs/heads/b1".to_string(), GitHierarchy::Reference(b1.into_reference()));
+        object_map.insert("refs/heads/b2".to_string(), GitHierarchy::Reference(b2.into_reference()));
+        object_map.insert("refs/heads/b3".to_string(), GitHierarchy::Reference(b3.into_reference()));
+
+        let res = remerge_sum(repo, &sum, &object_map);
+        // Expect conflict during piecewise step 2, so Err(RebaseError::Default)
+        assert!(matches!(res, Err(RebaseError::Default)));
+
+        // Head commit should be the step 1 merge commit (b1 + b2) with SERIES 1: in commit message
+        let head_commit = repo.head().unwrap().peel_to_commit().unwrap();
+        assert!(head_commit.message().unwrap().contains("SERIES 1:"));
+    }
 
     #[test]
     fn test_fetch_upstream_of_out_of_sync() {
