@@ -196,3 +196,19 @@ fn test_cli_segment_rejects_invalid_name() {
 
     assert!(!output.status.success());
 }
+
+#[test]
+fn test_cli_walk_down_rejects_invalid_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--")
+        .arg("-invalid-root")
+        .output()
+        .expect("failed to execute git-walk-down");
+
+    assert!(!output.status.success());
+}

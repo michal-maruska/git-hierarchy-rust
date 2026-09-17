@@ -64,12 +64,13 @@ struct Cli {
 
 
 fn list_segment_commits<'repo>(repository: &'repo Repository, segment: &Segment<'repo>) {
-    let walk = segment.iter(repository).unwrap();
-    for c in walk {
-        let oid = c.unwrap();
-        let commit = repository.find_commit(oid).unwrap();
-        let message = commit.summary().unwrap();
-        println!("{:?}: {}", oid, message);
+    if let Ok(walk) = segment.iter(repository) {
+        for c in walk.flatten() {
+            if let Ok(commit) = repository.find_commit(c) {
+                let message = commit.summary().unwrap_or("");
+                println!("{:?}: {}", c, message);
+            }
+        }
     }
     println!();
 }
@@ -95,8 +96,8 @@ fn describe_node<'repo>(
                 let branch = to_branch(repository, r);
 
                 if let Some((_remote, _branch , name)) = upstream_of(repository, &branch) {
-                    println!("a ref {} => {} {}", plain_ref_fmt(r.name().unwrap()),
-                             _remote.name().unwrap(),
+                    println!("a ref {} => {} {}", plain_ref_fmt(r.name().unwrap_or("")),
+                             _remote.name().unwrap_or(""),
                              name);
                 }
             } else {
@@ -116,7 +117,7 @@ fn describe_node<'repo>(
             println!(
                 "segment {}: on {}\t{}",
                 segment_fmt(segment.name()),
-                base.name().unwrap(),
+                base.name().unwrap_or(""),
                 state
             );
 
@@ -134,7 +135,7 @@ fn describe_node<'repo>(
 
             if !brief {
                 for s in &summands {
-                    println!("  {}", s.name().unwrap());
+                    println!("  {}", s.name().unwrap_or(""));
                 }
             }
         }
@@ -160,22 +161,23 @@ fn replace_nodes<'repo>(
             panic!();
         }
         GitHierarchy::Reference(r) => {
-            println!("a ref {}", r.name().unwrap());
+            println!("a ref {}", r.name().unwrap_or(""));
         }
         GitHierarchy::Segment(segment) => {
             // if segment itself in replace ... ignore it.
-            if remapped.get(segment.reference.borrow().name().unwrap()).is_some() {
-                info!("this segment is itself to be replaced, so ignoring");
-                return;
+            if let Some(ref_name) = segment.reference.borrow().name() {
+                if remapped.get(ref_name).is_some() {
+                    info!("this segment is itself to be replaced, so ignoring");
+                    return;
+                }
             }
 
             let base = segment.base(repository);
-            let base_name = base.name().unwrap();
-
-            if let Some(replacement) = remapped.get(base_name) {
-                debug!("exchange base {}", base_name);
-                segment.base.borrow_mut().symbolic_set_target(replacement, "replacement")
-                    .expect("should be possible to change Base symbolic reference");
+            if let Some(base_name) = base.name() {
+                if let Some(replacement) = remapped.get(base_name) {
+                    debug!("exchange base {}", base_name);
+                    let _ = segment.base.borrow_mut().symbolic_set_target(replacement, "replacement");
+                }
             }
         }
         GitHierarchy::Sum(sum) => {
@@ -183,7 +185,7 @@ fn replace_nodes<'repo>(
 
             println!("a sum of: ");
             for s in &summands {
-                let name = s.name().unwrap();
+                let name = s.name().unwrap_or("");
                 println!("{}", name);
 
                 if remapped.get(name).is_some() {
@@ -200,10 +202,16 @@ fn register_for_replacement<'repo>(
     target: &Reference<'repo>,
 )
 {
-    let name = from.name().unwrap().to_owned();
-    let target = target.name().unwrap().to_owned();
-    info!("will replace {} with {}", &name, &target);
-    remapped.insert(name, target).map(|_ : String| -> Option<String> {panic!("double")});
+    let name = match from.name() {
+        Some(n) => n.to_owned(),
+        None => return,
+    };
+    let target_name = match target.name() {
+        Some(n) => n.to_owned(),
+        None => return,
+    };
+    info!("will replace {} with {}", &name, &target_name);
+    remapped.insert(name, target_name);
     debug!("hash: {remapped:?}");
 }
 
@@ -224,7 +232,7 @@ fn clone_node<'repo>(
             panic!();
         }
         GitHierarchy::Reference(r) => {
-            println!("a ref {}", r.name().unwrap());
+            println!("a ref {}", r.name().unwrap_or(""));
         }
         GitHierarchy::Segment(segment) => {
             // if segment itself in replace ... ignore it.
@@ -232,49 +240,47 @@ fn clone_node<'repo>(
             info!("new name is {}", new_name);
 
             // get the base:
-            // ReferenceType::Symbolic
             let mut base = segment.base(repository);
-            let base_name = base.name().unwrap();
-
-            debug!("searching for replace of base {} in {:?}", base_name, remapped);
-            if let Some(replacement) = remapped.get(base_name) {
-                debug!("found! {replacement}");
-                base = repository.find_reference(replacement).unwrap();
+            if let Some(base_name) = base.name() {
+                debug!("searching for replace of base {} in {:?}", base_name, remapped);
+                if let Some(replacement) = remapped.get(base_name) {
+                    debug!("found! {replacement}");
+                    if let Ok(r) = repository.find_reference(replacement) {
+                        base = r;
+                    }
+                }
             }
-            let new_segment = Segment::create(repository,
+            let target_oid = match segment.reference.borrow().target() {
+                Some(t) => t,
+                None => return,
+            };
+            if let Ok(new_segment) = Segment::create(repository,
                                               &new_name,
-                                              &base, //  fixme!
+                                              &base,
                                               segment.start(),
-                                              segment.reference.borrow().target().unwrap())
-                .unwrap();
-
-            // fixme: I need full ref name:
-            register_for_replacement(remapped,
-                                     &segment.reference.borrow(),
-                                     &new_segment.reference.borrow());
+                                              target_oid) {
+                register_for_replacement(remapped,
+                                         &segment.reference.borrow(),
+                                         &new_segment.reference.borrow());
+            }
         }
         GitHierarchy::Sum(sum) => {
             let new_name = new_name_fn(sum.name());
             info!("new sum name is {}", new_name);
 
             let summands = sum.summands(repository);
-            // we need references, so the References are not moved/consumed
-
 
             println!("a sum of: ");
-            // extract the names? full ref names
-            // let summand_names =
             let rewritten_summands : Vec<_> =
                 summands.into_iter().map(
                     |s|
                     {
-                        let name = s.name().unwrap();
+                        let name = s.name().unwrap_or("");
                         println!("{}", name);
 
                         if let Some(replacement) = remapped.get(name) {
                             debug!("found! {replacement}");
-                            // println!("Would change the summand {}", name);
-                            repository.find_reference(replacement).unwrap()
+                            repository.find_reference(replacement).unwrap_or(s)
                         } else {
                             s
                         }
@@ -282,14 +288,16 @@ fn clone_node<'repo>(
 
             let summands_refs : Vec<_> = rewritten_summands.iter().collect();
 
-            let new_sum = Sum::create(repository,
+            let peel_commit = sum.reference.borrow().peel_to_commit().ok();
+            if let Ok(new_sum) = Sum::create(repository,
                                       &new_name,
                                       summands_refs.into_iter(),
-                                      Some(sum.reference.borrow().peel_to_commit().unwrap())).unwrap();
-            register_for_replacement(remapped,
-                                     &sum.reference.borrow(),
-                                     &new_sum.reference.borrow()
-            );
+                                      peel_commit) {
+                register_for_replacement(remapped,
+                                         &sum.reference.borrow(),
+                                         &new_sum.reference.borrow()
+                );
+            }
         }
     }
 }
@@ -305,12 +313,12 @@ where
 {
     let hierarchy_graph = find_hierarchy(repository, root.to_owned());
 
-    // convert the gh objects?
     for v in hierarchy_graph.discovery_order {
-        let vertex = hierarchy_graph.labeled_objects.get(&v).unwrap();
-        process(repository,
-                vertex,
-                &hierarchy_graph.labeled_objects);
+        if let Some(vertex) = hierarchy_graph.labeled_objects.get(&v) {
+            process(repository,
+                    vertex,
+                    &hierarchy_graph.labeled_objects);
+        }
     }
 }
 
@@ -332,6 +340,12 @@ fn main() -> Result<(), git2::Error> {
         }
     }
 
+    if !cli.clone.is_empty() {
+        for c in &cli.clone {
+            Segment::check_name_is_valid(c)?;
+        }
+    }
+
     let root = match cli.root_reference {
         Some(r) => r,
         None => {
@@ -348,20 +362,21 @@ fn main() -> Result<(), git2::Error> {
 
         let mut remapped = HashMap::new();
         info!("cloning {:?}", cli.clone);
-        // todo: drop suffix, add a new one.
-        // fn(&str)->String =
         let new_name : Box<dyn Fn(&str) -> String> =
             if cli.clone.len() == 1 {
                 debug!("Will only append suffix {}", cli.clone[0]);
+                let suffix = cli.clone[0].clone();
                 Box::new(
                     move |x : &str|
-                    concatenate(x, &cli.clone[0]))
+                    concatenate(x, &suffix))
             } else {
+                let suffix_remove = cli.clone[0].clone();
+                let suffix_add = cli.clone[1].clone();
                 Box::new(
-                move |x : &str|
-                concatenate(
-                    x.strip_suffix(&cli.clone[0]).unwrap(),
-                    &cli.clone[1]))
+                    move |x : &str|
+                    concatenate(
+                        x.strip_suffix(&suffix_remove).unwrap_or(x),
+                        &suffix_add))
             };
 
         walk_down(&repository, &root,
@@ -373,12 +388,15 @@ fn main() -> Result<(), git2::Error> {
 
     // and possibly *then* rename?
     if !cli.replace.is_empty() {
+        if cli.replace.len() < 2 {
+            return Err(git2::Error::from_str("replace requires 2 reference parameters"));
+        }
         info!("Replacing");
         // resolve them...
         let mut remapped = HashMap::new();
 
-        let from = repository.resolve_reference_from_short_name(&cli.replace[0]).unwrap();
-        let target = repository.resolve_reference_from_short_name(&cli.replace[1]).unwrap();
+        let from = repository.resolve_reference_from_short_name(&cli.replace[0])?;
+        let target = repository.resolve_reference_from_short_name(&cli.replace[1])?;
         register_for_replacement(&mut remapped, &from, &target);
         // move object_map ?
         walk_down(&repository, &root, |repository, node, object_map| {
