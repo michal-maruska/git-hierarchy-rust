@@ -323,7 +323,7 @@ fn main() -> Result<()> {
 
     init_tracing(cli.verbose);
 
-    let repository = cli.git_repository.open().context("failed to open git repository")?;
+    let repository = cli.git_repository.open()?;
     if !cli.replace.is_empty() {
         for r in &cli.replace {
             Segment::check_name_is_valid(r)?;
