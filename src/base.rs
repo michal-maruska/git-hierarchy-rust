@@ -199,22 +199,25 @@ pub fn to_branch<'repo>(repository: &'repo Repository, reference: &Reference<'re
         .unwrap()
 }
 
+use crate::git_hierarchy::Segment;
+
 /// for CLI
 pub fn resolve_user_commit<'repo>(repository: &'repo Repository, input: &str) -> Option<Commit<'repo>> {
-    if let Ok(sha) = Oid::from_str(input) {
-        if let Ok(commit) = repository.find_commit(sha) {
-            Some(commit)
-        } else {
-            debug!("couldn't find the commit {}", sha);
-            None
+    if Segment::name_is_valid(input).ok()? {
+        if let Ok(sha) = Oid::from_str(input) {
+            if let Ok(commit) = repository.find_commit(sha) {
+                return Some(commit);
+            } else {
+                debug!("couldn't find the commit {}", sha);
+            }
         }
-    } else if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
-        // refname_to_id
-        Some(reference.peel_to_commit().unwrap())
-    } else {
-        debug!("couldn't find reference {}", input);
-        None
+
+        if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
+            return reference.peel_to_commit().ok();
+        }
     }
+    debug!("couldn't resolve commit from input {}", input);
+    None
 }
 
 // fn take<>(x: impl IntoIterator<Item=&'a T>)
@@ -334,5 +337,23 @@ mod tests {
 
         let found2 = find_commit_in_reflog(repo, "refs/heads/main", commit2.id()).unwrap();
         assert_eq!(found2, Some(0));
+    }
+
+    #[test]
+    fn test_resolve_user_commit_validation() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+        repo.branch("main", &commit, false).unwrap();
+
+        // Valid inputs resolve correctly
+        assert!(resolve_user_commit(repo, &commit.id().to_string()).is_some());
+        assert!(resolve_user_commit(repo, "main").is_some());
+
+        // Invalid inputs and option injection attempts return None
+        assert!(resolve_user_commit(repo, "-option-inject").is_none());
+        assert!(resolve_user_commit(repo, "--flag").is_none());
+        assert!(resolve_user_commit(repo, "nonexistent-branch").is_none());
     }
 }

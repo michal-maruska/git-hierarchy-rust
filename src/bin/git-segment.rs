@@ -261,6 +261,7 @@ fn main() -> Result<()> {
 
             },
             Commands::Update(args) => {
+                Segment::check_name_is_valid(&args.new_base)?;
                 let gh = load(&repository, &args.segment_name)
                     .with_context(|| format!("failed to load segment '{}'", args.segment_name))?;
                 if let GitHierarchy::Segment(segment) = gh {
