@@ -11,6 +11,9 @@ use git2::{Branch, BranchType, Commit, Oid,
 #[allow(unused)]
 use tracing::{debug, info, warn};
 use std::path::PathBuf;
+use anyhow::Result;
+use crate::git_hierarchy::Segment;
+
 
 // this consults the store.
 pub fn git_same_ref(
@@ -200,33 +203,32 @@ pub fn to_branch<'repo>(repository: &'repo Repository, reference: &Reference<'re
 }
 
 /// for CLI
-pub fn resolve_user_commit<'repo>(repository: &'repo Repository, input: &str) -> Option<Commit<'repo>> {
+pub fn resolve_user_commit<'repo>(repository: &'repo Repository, input: &str) -> anyhow::Result<Commit<'repo>> {
+    Segment::check_name_is_valid(input)?;
+
     if let Ok(sha) = Oid::from_str(input) {
         if let Ok(commit) = repository.find_commit(sha) {
-            Some(commit)
+            return Ok(commit);
         } else {
             debug!("couldn't find the commit {}", sha);
-            None
         }
-    } else if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
-        // refname_to_id
-        Some(reference.peel_to_commit().unwrap())
-    } else {
-        debug!("couldn't find reference {}", input);
-        None
     }
+
+    // now to see the input as a ref-name
+    let reference = repository.resolve_reference_from_short_name(input)?.peel_to_commit()?;
+    return Ok(reference);
 }
 
 // fn take<>(x: impl IntoIterator<Item=&'a T>)
 pub fn resolve_to_commit_maybe<'repo, T: AsRef<str>>(
     repository: &'repo Repository,
     hint: Option<T>,
-) -> Result<Option<git2::Commit<'repo>>, git2::Error> {
+) -> anyhow::Result<Option<git2::Commit<'repo>>> {
     let s = match hint {
         Some(s) => s,
         None => return Ok(None),
     };
-    Ok(resolve_user_commit(repository, s.as_ref()))
+    Ok(Some(resolve_user_commit(repository, s.as_ref())?))
 }
 
 
@@ -334,5 +336,23 @@ mod tests {
 
         let found2 = find_commit_in_reflog(repo, "refs/heads/main", commit2.id()).unwrap();
         assert_eq!(found2, Some(0));
+    }
+
+    #[test]
+    fn test_resolve_user_commit_validation() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit = create_commit(repo, "commit 1", &[]);
+        repo.branch("main", &commit, false).unwrap();
+
+        // Valid inputs resolve correctly
+        assert!(resolve_user_commit(repo, &commit.id().to_string()).is_some());
+        assert!(resolve_user_commit(repo, "main").is_some());
+
+        // Invalid inputs and option injection attempts return None
+        assert!(resolve_user_commit(repo, "-option-inject").is_none());
+        assert!(resolve_user_commit(repo, "--flag").is_none());
+        assert!(resolve_user_commit(repo, "nonexistent-branch").is_none());
     }
 }

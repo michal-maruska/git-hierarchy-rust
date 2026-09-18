@@ -127,7 +127,7 @@ fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Seg
 
     let start = if let Some(s) = &args.start {
         resolve_user_commit(repository, s)
-            .ok_or_else(|| anyhow!("failed to resolve start commit '{}'", s))?
+            .with_context(|| anyhow!("failed to resolve start commit '{}'", s))?
             .id()
     } else {
         base.target().ok_or_else(|| anyhow!("base reference target missing"))?
@@ -135,7 +135,7 @@ fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Seg
 
     let head = if let Some(x) = &args.head {
         resolve_user_commit(repository, x)
-            .ok_or_else(|| anyhow!("failed to resolve head commit '{}'", x))?
+            .with_context(|| anyhow!("failed to resolve head commit '{}'", x))?
             .id()
     } else {
         start
@@ -248,7 +248,7 @@ fn main() -> Result<()> {
                 let gh = load(&repository, &args.segment_name)?;
                 if let GitHierarchy::Segment(segment) = gh {
                     let commit = resolve_user_commit(&repository, args.commit.as_ref())
-                        .ok_or_else(|| anyhow!("failed to resolve commit '{}'", args.commit))?;
+                        .with_context(|| anyhow!("failed to resolve commit '{}'", args.commit))?;
                     let oid = commit.id();
                     println!("restart from {} {}", args.commit, oid);
                     segment.set_start(&repository, oid);
@@ -258,6 +258,7 @@ fn main() -> Result<()> {
 
             },
             Commands::Update(args) => {
+                Segment::check_name_is_valid(&args.new_base)?;
                 let gh = load(&repository, &args.segment_name)?;
                 if let GitHierarchy::Segment(segment) = gh {
                     let new_base = repository.resolve_reference_from_short_name(&args.new_base)
