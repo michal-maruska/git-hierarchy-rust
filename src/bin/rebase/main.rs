@@ -35,6 +35,7 @@ use crate::graph::discover_pet::find_hierarchy;
 #[allow(unused)]
 use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load};
 
+use anyhow::{Context, Result, anyhow, bail};
 use std::process::exit;
 use colored::Colorize;
 
@@ -319,14 +320,15 @@ fn rebase_node<'repo>(
     node: &GitHierarchy<'repo>,
     fetch: bool,
     object_map: &HashMap<String, GitHierarchy<'repo>>,
-) -> Result<RebaseResult, RebaseError> {
+) -> Result<RebaseResult> {
     match node {
-        GitHierarchy::Name(_n) => {
-            panic!();
+        GitHierarchy::Name(n) => {
+            bail!("invalid Name node variant in rebase_node: {}", n);
         }
         GitHierarchy::Reference(r) => {
             if fetch {
-                fetch_upstream_of(repo, r)?; // .expect("fetch failed")
+                fetch_upstream_of(repo, r)
+                    .with_context(|| format!("failed to fetch upstream of '{}'", r.name().unwrap_or("")))?;
             }
             Ok(RebaseResult::Done)
         }
@@ -334,10 +336,12 @@ fn rebase_node<'repo>(
             let my_span = span!(Level::INFO, "segment", name = segment.name());
             let _enter = my_span.enter();
             rebase_segment(repo, segment)
+                .with_context(|| format!("failed to rebase segment '{}'", segment.name()))
         }
         GitHierarchy::Sum(sum) => {
             let _my_span = span!(Level::INFO, "sum", name = sum.name());
             remerge_sum(repo, sum, object_map)
+                .with_context(|| format!("failed to remerge sum '{}'", sum.name()))
         }
     }
 }
@@ -346,19 +350,21 @@ fn check_node<'repo>(
     repo: &'repo Repository,
     node: &GitHierarchy<'repo>,
     object_map: &HashMap<String, GitHierarchy<'repo>>,
-) -> Result<(), RebaseError>{
+) -> Result<()> {
     match node {
-        GitHierarchy::Name(_n) => {
-            panic!();
+        GitHierarchy::Name(n) => {
+            bail!("invalid Name node variant in check_node: {}", n);
         }
         GitHierarchy::Reference(_r) => {
             // no
         }
         GitHierarchy::Segment(segment) => {
-            check_segment(repo, segment)?;
+            check_segment(repo, segment)
+                .with_context(|| format!("check failed for segment '{}'", segment.name()))?;
         }
         GitHierarchy::Sum(sum) => {
-            check_sum(repo, sum, object_map)?;
+            check_sum(repo, sum, object_map)
+                .with_context(|| format!("check failed for sum '{}'", sum.name()))?;
         }
     }
 
@@ -367,12 +373,13 @@ fn check_node<'repo>(
 
 
 // whole hierarchy
-fn rebase_tree(repository: &Repository,
-               root: String,
-               fetch: bool,
-               ignore: &[String],
-               skip: &[String]
-) -> Result<(), RebaseError> {
+fn rebase_tree(
+    repository: &Repository,
+    root: String,
+    fetch: bool,
+    ignore: &[String],
+    skip: &[String],
+) -> Result<()> {
     debug!("find the hierarchy from {}", &root);
     tracing::debug_span!("hierarchy");
     let hierarchy_graph = find_hierarchy(repository, root);
@@ -383,7 +390,7 @@ fn rebase_tree(repository: &Repository,
         let vertex = hierarchy_graph
             .labeled_objects
             .get(v)
-            .ok_or_else(|| RebaseError::WrongHierarchy(v.clone()))?;
+            .ok_or_else(|| anyhow!("vertex '{}' missing from hierarchy objects", v))?;
         let name = vertex.node_identity();
         debug!(
             "{:?} -> ({:?} / {:?})",
@@ -397,8 +404,7 @@ fn rebase_tree(repository: &Repository,
             info!("not checking: {name}");
             continue;
         }
-        check_node(repository, vertex, &hierarchy_graph.labeled_objects)?
-            // with context .expect("nodes should be in correct state");
+        check_node(repository, vertex, &hierarchy_graph.labeled_objects)?;
     }
 
     debug!("Rebasing");
@@ -406,7 +412,7 @@ fn rebase_tree(repository: &Repository,
         let vertex = hierarchy_graph
             .labeled_objects
             .get(v)
-            .ok_or_else(|| RebaseError::WrongHierarchy(v.clone()))?;
+            .ok_or_else(|| anyhow!("vertex '{}' missing from hierarchy objects", v))?;
         let name = vertex.node_identity();
 
         if skip.iter().any(|x| x == name) {
@@ -451,25 +457,24 @@ struct Cli {
     skip: Vec<String>
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let mut cli = Cli::parse();
     init_tracing(cli.verbose);
 
-    let repository = cli.git_repository.open()?;
+    let repository = cli.git_repository.open().context("failed to open git repository")?;
 
     if cli.cont {
         // old: rebase_continue_git1(repository, &segment_name)
-        rebase_segment_continue(&repository)?;
+        rebase_segment_continue(&repository)
+            .context("failed to continue segment rebase")?;
     } else {
         // fixme: what if SUM?
         match segment_to_continue(&repository) {
             Ok(Some((segment_name, _))) => {
-                eprintln!("{} {}", Colorize::bright_magenta("rebase underway, must use continue -c"), segment_name);
-                exit(1);
+                bail!("rebase underway, must use continue -c {}", segment_name);
             }
             Err(e) => {
-                eprintln!("{}: {:?}", Colorize::red("Error reading rebase state"), e);
-                exit(1);
+                return Err(e).context("Error reading rebase state");
             }
             Ok(None) => {}
         }
@@ -478,9 +483,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = match cli.root_reference {
         Some(r) => r,
         None => repository
-            .head()?
+            .head()
+            .context("failed to resolve HEAD reference")?
             .name()
-            .ok_or_else(|| git2::Error::from_str("HEAD reference missing name"))?
+            .ok_or_else(|| anyhow!("HEAD reference missing name"))?
             .to_owned(),
     };
     Segment::check_name_is_valid(&root)?;
@@ -489,21 +495,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     debug!("root is {}", root.node_identity());
 
-    resolve_reference_names_from_user(&repository, &mut cli.ignore)?;
-    resolve_reference_names_from_user(&repository, &mut cli.skip)?;
+    resolve_reference_names_from_user(&repository, &mut cli.ignore)
+        .context("failed to resolve ignore references")?;
+    resolve_reference_names_from_user(&repository, &mut cli.skip)
+        .context("failed to resolve skip references")?;
 
-    if let Err(e) = rebase_tree(&repository,
-                                // why?
-                                root.node_identity().to_owned(),
-                                !cli.no_fetch,
-                                &cli.ignore,
-                                &cli.skip)
-    {
-        eprintln!("Failed: {:?}", e); // RebaseError
-        exit(-1);
-    } else {
-        eprintln!("{}",Colorize::green("Done"));
-    }
+    rebase_tree(
+        &repository,
+        root.node_identity().to_owned(),
+        !cli.no_fetch,
+        &cli.ignore,
+        &cli.skip,
+    ).with_context(|| format!("failed to rebase tree starting at '{}'", root.node_identity()))?;
+
+    eprintln!("{}", Colorize::green("Done"));
     Ok(())
 }
 

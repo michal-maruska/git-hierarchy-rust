@@ -1,3 +1,4 @@
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser,Subcommand,CommandFactory,FromArgMatches};
 use git_hierarchy::base::{is_linear_ancestor,resolve_user_commit};
 use git_hierarchy::cli::ClapGitRepo;
@@ -117,22 +118,25 @@ struct DefineArgs {
 }
 
 
-fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Segment<'repo>, git2::Error>
-{
+fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Segment<'repo>> {
     if !Segment::name_is_valid(&args.segment_name)? || !Segment::name_is_valid(&args.base)? {
-        return Err(git2::Error::from_str("invalid reference name"));
+        bail!("invalid reference name");
     }
-    let base = repository.resolve_reference_from_short_name(&args.base)?;
+    let base = repository.resolve_reference_from_short_name(&args.base)
+        .with_context(|| format!("failed to resolve base reference '{}'", args.base))?;
 
     let start = if let Some(s) = &args.start {
-        // note: as_ref().unwrap()  vs unwrap().as_ref() ...
-        resolve_user_commit(repository, s).ok_or(git2::Error::from_str("failed to resolve start commit"))?.id()
+        resolve_user_commit(repository, s)
+            .ok_or_else(|| anyhow!("failed to resolve start commit '{}'", s))?
+            .id()
     } else {
-        base.target().ok_or_else(|| git2::Error::from_str("base reference target missing"))?
+        base.target().ok_or_else(|| anyhow!("base reference target missing"))?
     };
 
     let head = if let Some(x) = &args.head {
-        resolve_user_commit(repository, x).ok_or(git2::Error::from_str("failed to resolve head commit"))?.id()
+        resolve_user_commit(repository, x)
+            .ok_or_else(|| anyhow!("failed to resolve head commit '{}'", x))?
+            .id()
     } else {
         start
     };
@@ -140,25 +144,28 @@ fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Seg
     info!("create {} in {:?}", args.segment_name, repository.path());
     info!("base = {}, start {} = {}", base.name().unwrap_or("??"), start, head);
     Segment::create(repository, &args.segment_name, &base, start, head)
+        .with_context(|| format!("failed to define segment '{}'", args.segment_name))
 }
 
-fn delete(repository: &Repository, args: &DeleteCmd) -> Result<(), git2::Error> {
-    let gh = load(repository, &args.segment_name)?;
+fn delete(repository: &Repository, args: &DeleteCmd) -> Result<()> {
+    let gh = load(repository, &args.segment_name)
+        .with_context(|| format!("failed to load segment '{}'", args.segment_name))?;
     if let GitHierarchy::Segment(mut segment) = gh {
         println!("Delete {} in {:?}", args.segment_name, repository.path());
 
-        segment.base.borrow_mut().delete()?;
-        segment._start.delete()?;
-        segment.reference.borrow_mut().delete()?;
+        segment.base.borrow_mut().delete().context("failed to delete segment base reference")?;
+        segment._start.delete().context("failed to delete segment start reference")?;
+        segment.reference.borrow_mut().delete().context("failed to delete segment reference")?;
         Ok(())
     } else {
-        return Err(git2::Error::from_str(&format!("{} is not a segment", args.segment_name)))
+        bail!("{} is not a segment", args.segment_name);
     }
 }
 
 // see list_segment in git-walk-down.rs
-fn describe(repository: &Repository, segment_name: &str) -> Result<(), git2::Error> {
-    let gh = load(repository, segment_name)?;
+fn describe(repository: &Repository, segment_name: &str) -> Result<()> {
+    let gh = load(repository, segment_name)
+        .with_context(|| format!("failed to load segment '{}'", segment_name))?;
 
     if let GitHierarchy::Segment(segment) = gh {
         println!("Segment {} in {:?}", segment_fmt(segment_name), repository.path());
@@ -172,7 +179,7 @@ fn describe(repository: &Repository, segment_name: &str) -> Result<(), git2::Err
             segment.start(),
             segment.reference.borrow().peel_to_commit()?.id()
         )? {
-            return Err(git2::Error::from_str("Start is not ancestor!"));
+            bail!("Start is not ancestor!");
         }
 
         for oid in segment.iter(repository)? {
@@ -183,12 +190,12 @@ fn describe(repository: &Repository, segment_name: &str) -> Result<(), git2::Err
         Ok(())
     } else {
         info!("Segment {} does not exist", segment_fmt(segment_name));
-        return Err(git2::Error::from_str(&format!("{} is not a segment", segment_name)))
+        bail!("{} is not a segment", segment_name);
     }
 }
 
-fn list_segments(repository: &Repository) -> Result<(), git2::Error> {
-    let ref_iterator = segments(repository)?;
+fn list_segments(repository: &Repository) -> Result<()> {
+    let ref_iterator = segments(repository).context("failed to query segments")?;
     for r in ref_iterator {
         println!("{}", segment_fmt(&r));
     }
@@ -196,7 +203,7 @@ fn list_segments(repository: &Repository) -> Result<(), git2::Error> {
 }
 
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
 
     let clip =
         if true {
@@ -231,7 +238,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
     */
 
-    let repository = clip.git_repository.open()?;
+    let repository = clip.git_repository.open().context("failed to open git repository")?;
 
     // this is an associated function, not a method
     if let Some(command) = clip.command {
@@ -240,24 +247,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 list_segments(&repository)?;
             }
             Commands::Restart(args) => {
-                let gh = load(&repository, &args.segment_name)?;
+                let gh = load(&repository, &args.segment_name)
+                    .with_context(|| format!("failed to load segment '{}'", args.segment_name))?;
                 if let GitHierarchy::Segment(segment) = gh {
                     let commit = resolve_user_commit(&repository, args.commit.as_ref())
-                        .ok_or_else(|| git2::Error::from_str("failed to resolve commit"))?;
+                        .ok_or_else(|| anyhow!("failed to resolve commit '{}'", args.commit))?;
                     let oid = commit.id();
                     println!("restart from {} {}", args.commit, oid);
                     segment.set_start(&repository, oid);
+                } else {
+                    bail!("{} is not a segment", args.segment_name);
                 }
 
             },
             Commands::Update(args) => {
-                let gh = load(&repository, &args.segment_name)?;
+                let gh = load(&repository, &args.segment_name)
+                    .with_context(|| format!("failed to load segment '{}'", args.segment_name))?;
                 if let GitHierarchy::Segment(segment) = gh {
-                    let new_base = repository.resolve_reference_from_short_name(&args.new_base)?;
+                    let new_base = repository.resolve_reference_from_short_name(&args.new_base)
+                        .with_context(|| format!("failed to resolve reference '{}'", args.new_base))?;
                     println!("rebase from {} -> {} {}", args.new_base,
                              new_base.name().unwrap_or(""),
                              if args.rebase {"immediately"} else {""});
                     segment.set_base(&repository, &new_base);
+                } else {
+                    bail!("{} is not a segment", args.segment_name);
                 }
             },
             Commands::Delete(args) => {
@@ -269,17 +283,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // try to switch
                 // let reference = seg.reference_clone(repository);
-                let name = seg.reference.borrow().name().ok_or("reference missing name")?.to_string();
-                let reference = repository.find_reference(&name)?;
+                let name = seg.reference.borrow().name().ok_or_else(|| anyhow!("reference missing name"))?.to_string();
+                let reference = repository.find_reference(&name)
+                    .with_context(|| format!("failed to find reference '{}'", name))?;
                 println!("should checkout now {}", name);
 
                 // 1. Checkout the TARGET tree first (while HEAD still points at the old ref)
-                let target_commit = reference.peel_to_commit()?;
-                let target_tree = target_commit.tree()?;
-                repository.checkout_tree(target_tree.as_object(), Some(CheckoutBuilder::new().safe()))?;
+                let target_commit = reference.peel_to_commit()
+                    .with_context(|| format!("failed to peel reference '{}' to commit", name))?;
+                let target_tree = target_commit.tree()
+                    .with_context(|| format!("failed to get tree for commit '{}'", target_commit.id()))?;
+                repository.checkout_tree(target_tree.as_object(), Some(CheckoutBuilder::new().safe()))
+                    .with_context(|| format!("failed to checkout tree for '{}'", name))?;
 
                 // 2. THEN move HEAD to point at the new ref
-                repository.set_head(&name)?;
+                repository.set_head(&name)
+                    .with_context(|| format!("failed to set HEAD to '{}'", name))?;
             }
             Commands::Define(args) => {
                 define(&repository, &args)?;

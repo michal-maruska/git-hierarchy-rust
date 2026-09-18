@@ -1,4 +1,4 @@
-use std::process::exit;
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser,Subcommand};
 use git2::Repository;
 use colored::Colorize;
@@ -117,27 +117,28 @@ struct DeleteCmd {
 }
 
 
-fn define_sum<'repo,'a, T: AsRef<str> + 'a>(repository: &'repo Repository,
-                                            name: &str,
-                                            summands: &[T],
-                                            hint: Option<T>) -> Result<(), git2::Error> {
-    let sumrefs = resolve_references_from_user(repository, summands)?;
-    let hint_head_oid = resolve_to_commit_maybe(repository, hint)?;
+fn define_sum<'repo, 'a, T: AsRef<str> + 'a>(
+    repository: &'repo Repository,
+    name: &str,
+    summands: &[T],
+    hint: Option<T>,
+) -> Result<()> {
+    let sumrefs = resolve_references_from_user(repository, summands)
+        .with_context(|| format!("failed to resolve summand references for sum '{}'", name))?;
+    let hint_head_oid = resolve_to_commit_maybe(repository, hint)
+        .context("failed to resolve hint commit for sum")?;
 
-    let _sum = Sum::create(
-        repository,
-        name,
-        sumrefs.iter(),
-        hint_head_oid
-    )?;
+    let _sum = Sum::create(repository, name, sumrefs.iter(), hint_head_oid)
+        .with_context(|| format!("failed to create sum '{}'", name))?;
     Ok(())
 }
 
-fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<(), git2::Error> {
-    let gh = load(repository, &args.sum_name)?;
+fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<()> {
+    let gh = load(repository, &args.sum_name)
+        .with_context(|| format!("failed to load sum '{}'", args.sum_name))?;
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
-        sum.reference.borrow_mut().delete()?;
+        sum.reference.borrow_mut().delete().context("failed to delete sum reference")?;
 
         let mut first_err = None;
         for mut summand in sum.summands {
@@ -149,33 +150,29 @@ fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<(), git2::Err
             }
         }
         if let Some(e) = first_err {
-            return Err(e);
+            return Err(e).context("failed to delete all summand references");
         }
     } else {
-        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.sum_name);
-        return Err(git2::Error::from_str(&format!("{} is not a sum", args.sum_name)));
+        bail!("{} is not a sum", args.sum_name);
     }
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let clip = Cli::parse();
     tracing_subscriber::fmt()
         .with_max_level(clip.verbosity)
         .init();
 
-    let repository = clip.git_repository.open()?;
+    let repository = clip.git_repository.open().context("failed to open git repository")?;
 
     if let Some(command) = clip.command {
         match command {
             Commands::List(_args) => {
-                list_sums(&repository);
+                list_sums(&repository)?;
             }
             Commands::Define(args) => {
-                define_sum(&repository,
-                           &args.name,
-                           &args.components,
-                           args.head)?;
+                define_sum(&repository, &args.name, &args.components, args.head)?;
             }
             Commands::Delete(args) => {
                 delete_sum(&repository, &args)?;
@@ -193,47 +190,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     } else if let Some(args) = clip.define_or_show_args {
         if args.len() == 1 {
-            let args = ShowArgs{name: args[0].clone()};
+            let args = ShowArgs { name: args[0].clone() };
             describe_sum(&repository, &args)?;
         } else {
-            define_sum(&repository,
-                       &args[0],
-                       &args[1..],
-                       None)?;
+            define_sum(&repository, &args[0], &args[1..], None)?;
         }
     } else {
-        list_sums(&repository);
+        list_sums(&repository)?;
     }
     Ok(())
 }
 
-fn list_sums(repository: &Repository) {
-    match sums(repository) {
-        Ok(ref_iterator) => {
-            for r in ref_iterator {
-                println!("{}", r);
-            }
-        }
-        Err(e) => {
-            eprintln!("failed to list sums: {}", e);
-            exit(1);
-        }
+fn list_sums(repository: &Repository) -> Result<()> {
+    let ref_iterator = sums(repository).context("failed to query sums")?;
+    for r in ref_iterator {
+        println!("{}", r);
     }
+    Ok(())
 }
 
-fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<(), git2::Error> {
-    let gh = load(repository, &args.name)?;
+fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
+    let gh = load(repository, &args.name)
+        .with_context(|| format!("failed to load sum '{}'", args.name))?;
     if let GitHierarchy::Sum(sum) = gh {
         println!("sum {}", sum_fmt(sum.name()));
         let summands = sum.summands(repository);
         for s in &summands {
-            println!("\t {}", s.name().unwrap());
+            println!("\t {}", s.name().unwrap_or(""));
         }
 
         let summands_gh: Result<Vec<GitHierarchy<'_>>, _> =
-            summands.into_iter().map(|x| load(repository, x.name().unwrap())).collect();
+            summands.into_iter().map(|x| {
+                let name = x.name().ok_or_else(|| anyhow!("summand reference missing name"))?;
+                load(repository, name).with_context(|| format!("failed to load summand '{}'", name))
+            }).collect();
         let summands_gh = summands_gh?;
-        // report if clean or dirty.
 
         let summands_refs = summands_gh.iter().collect();
 
@@ -242,34 +233,37 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<(), git2::Er
         }
         Ok(())
     } else {
-        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
-        Err(git2::Error::from_str(&format!("{} is not a sum", args.name)))
+        bail!("{} is not a sum", args.name);
     }
 }
 
 
-fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<(), git2::Error> {
-    let gh = load(repository, &args.name)?;
+fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<()> {
+    let gh = load(repository, &args.name)
+        .with_context(|| format!("failed to load sum '{}'", args.name))?;
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs = resolve_references_from_user(repository, &args.summands)?;
-        sum.add_summands(repository, sumrefs.iter(), None)?;
+        let sumrefs = resolve_references_from_user(repository, &args.summands)
+            .with_context(|| format!("failed to resolve summands for sum '{}'", args.name))?;
+        sum.add_summands(repository, sumrefs.iter(), None)
+            .with_context(|| format!("failed to add summands to sum '{}'", args.name))?;
         Ok(())
     } else {
-        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
-        Err(git2::Error::from_str(&format!("{} is not a sum", args.name)))
+        bail!("{} is not a sum", args.name);
     }
 }
 
-fn remove_from_sum(repository: &Repository, args: &RemoveArgs) -> Result<(), git2::Error> {
-    let gh = load(repository, &args.name)?;
+fn remove_from_sum(repository: &Repository, args: &RemoveArgs) -> Result<()> {
+    let gh = load(repository, &args.name)
+        .with_context(|| format!("failed to load sum '{}'", args.name))?;
 
     if let GitHierarchy::Sum(mut sum) = gh {
-        let sumrefs = resolve_references_from_user(repository, &args.summands)?;
-        sum.remove_summands(repository, sumrefs.iter())?;
+        let sumrefs = resolve_references_from_user(repository, &args.summands)
+            .with_context(|| format!("failed to resolve summands for sum '{}'", args.name))?;
+        sum.remove_summands(repository, sumrefs.iter())
+            .with_context(|| format!("failed to remove summands from sum '{}'", args.name))?;
         Ok(())
     } else {
-        eprintln!("{}: {} is not a sum", Colorize::red("invalid sum"), args.name);
-        Err(git2::Error::from_str(&format!("{} is not a sum", args.name)))
+        bail!("{} is not a sum", args.name);
     }
 }
 

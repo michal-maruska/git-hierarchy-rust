@@ -1,3 +1,4 @@
+use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use git_hierarchy::graph::discover::NodeExpander;
 
@@ -27,18 +28,18 @@ struct Cli {
     root_reference: Option<String>,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     init_tracing(cli.verbose);
 
-    let repository = cli.git_repository.open()?;
+    let repository = cli.git_repository.open().context("failed to open git repository")?;
 
     let root = match cli.root_reference {
         Some(r) => r,
         None => {
             let head = current_branch(&repository)
-                .ok_or_else(|| git2::Error::from_str("no current branch chosen"))?;
+                .ok_or_else(|| anyhow!("no current branch chosen"))?;
             info!("Start from HEAD = {}", head);
             head
         }
@@ -60,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         // the base is off.
                         let base_ref = segment.base(&repository);
-                        let name = base_ref.name().ok_or_else(|| git2::Error::from_str("base reference has no name"))?;
+                        let name = base_ref.name().ok_or_else(|| anyhow!("base reference has no name"))?;
                         Segment::check_name_is_valid(name)?;
                         let name_str = name.to_string();
                         if !tops.contains(&name_str) {
@@ -69,13 +70,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 GitHierarchy::Sum(sum) => {
-                    // if check_sum(&repository, sum, &hierarchy_graph.labeled_objects).is_err() {
-                    // todo: add the summands which are off.
                     let summands = sum.summands(&repository);
                     let summands_gh: Result<Vec<GitHierarchy<'_>>, _> =
                         summands.into_iter().map(|x| {
-                            let summand_name = x.name().ok_or_else(|| git2::Error::from_str("summand reference has no name"))?;
+                            let summand_name = x.name().ok_or_else(|| anyhow!("summand reference has no name"))?;
                             load(&repository, summand_name)
+                                .with_context(|| format!("failed to load summand '{}'", summand_name))
                         }).collect();
                     let summands_gh = summands_gh?;
                     let summands_refs = summands_gh.iter().collect();
@@ -132,8 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(e) => {
-            eprintln!("Failed to execute gitk: {}", e);
-            return Err(e.into());
+            return Err(e).with_context(|| format!("failed to execute gitk with args: {:?}", gitk_args));
         }
     }
 
