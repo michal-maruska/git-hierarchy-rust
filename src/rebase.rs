@@ -59,6 +59,8 @@ pub enum RebaseError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Execute(#[from] crate::execute::Error),
+    #[error(transparent)]
+    Anyhow(#[from] anyhow::Error),
     #[error("rebase error")]
     Default,
 }
@@ -739,6 +741,11 @@ mod tests {
         let converted_exec: RebaseError = exec_err.into();
         assert!(matches!(converted_exec, RebaseError::Execute(_)));
         assert_eq!(converted_exec.to_string(), "Repository has no working directory");
+
+        let anyhow_err = anyhow::anyhow!("custom anyhow error");
+        let converted_anyhow: RebaseError = anyhow_err.into();
+        assert!(matches!(converted_anyhow, RebaseError::Anyhow(_)));
+        assert_eq!(converted_anyhow.to_string(), "custom anyhow error");
     }
 
     #[test]

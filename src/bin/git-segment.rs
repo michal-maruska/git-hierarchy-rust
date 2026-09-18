@@ -148,8 +148,7 @@ fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Seg
 }
 
 fn delete(repository: &Repository, args: &DeleteCmd) -> Result<()> {
-    let gh = load(repository, &args.segment_name)
-        .with_context(|| format!("failed to load segment '{}'", args.segment_name))?;
+    let gh = load(repository, &args.segment_name)?;
     if let GitHierarchy::Segment(mut segment) = gh {
         println!("Delete {} in {:?}", args.segment_name, repository.path());
 
@@ -164,8 +163,7 @@ fn delete(repository: &Repository, args: &DeleteCmd) -> Result<()> {
 
 // see list_segment in git-walk-down.rs
 fn describe(repository: &Repository, segment_name: &str) -> Result<()> {
-    let gh = load(repository, segment_name)
-        .with_context(|| format!("failed to load segment '{}'", segment_name))?;
+    let gh = load(repository, segment_name)?;
 
     if let GitHierarchy::Segment(segment) = gh {
         println!("Segment {} in {:?}", segment_fmt(segment_name), repository.path());
@@ -238,7 +236,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     */
 
-    let repository = clip.git_repository.open().context("failed to open git repository")?;
+    let repository = clip.git_repository.open()?;
 
     // this is an associated function, not a method
     if let Some(command) = clip.command {
@@ -247,8 +245,7 @@ fn main() -> Result<()> {
                 list_segments(&repository)?;
             }
             Commands::Restart(args) => {
-                let gh = load(&repository, &args.segment_name)
-                    .with_context(|| format!("failed to load segment '{}'", args.segment_name))?;
+                let gh = load(&repository, &args.segment_name)?;
                 if let GitHierarchy::Segment(segment) = gh {
                     let commit = resolve_user_commit(&repository, args.commit.as_ref())
                         .ok_or_else(|| anyhow!("failed to resolve commit '{}'", args.commit))?;
@@ -261,8 +258,7 @@ fn main() -> Result<()> {
 
             },
             Commands::Update(args) => {
-                let gh = load(&repository, &args.segment_name)
-                    .with_context(|| format!("failed to load segment '{}'", args.segment_name))?;
+                let gh = load(&repository, &args.segment_name)?;
                 if let GitHierarchy::Segment(segment) = gh {
                     let new_base = repository.resolve_reference_from_short_name(&args.new_base)
                         .with_context(|| format!("failed to resolve reference '{}'", args.new_base))?;

@@ -25,14 +25,13 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     init_tracing(cli.verbose);
 
-    let repository = cli.git_repository.open().context("failed to open git repository")?;
+    let repository = cli.git_repository.open()?;
 
     if !Segment::name_is_valid(&cli.segment_name)? {
         bail!("invalid segment name: {}", cli.segment_name);
     }
 
-    let gh = git_hierarchy::git_hierarchy::load(&repository, &cli.segment_name)
-        .with_context(|| format!("failed to load segment '{}'", cli.segment_name))?;
+    let gh = git_hierarchy::git_hierarchy::load(&repository, &cli.segment_name)?;
     if let GitHierarchy::Segment(segment) = gh {
         check_segment(&repository, &segment)
             .with_context(|| format!("check failed for segment '{}'", cli.segment_name))?;

@@ -461,7 +461,7 @@ fn main() -> Result<()> {
     let mut cli = Cli::parse();
     init_tracing(cli.verbose);
 
-    let repository = cli.git_repository.open().context("failed to open git repository")?;
+    let repository = cli.git_repository.open()?;
 
     if cli.cont {
         // old: rebase_continue_git1(repository, &segment_name)

@@ -33,7 +33,7 @@ fn main() -> Result<()> {
 
     init_tracing(cli.verbose);
 
-    let repository = cli.git_repository.open().context("failed to open git repository")?;
+    let repository = cli.git_repository.open()?;
 
     let root = match cli.root_reference {
         Some(r) => r,
@@ -75,7 +75,6 @@ fn main() -> Result<()> {
                         summands.into_iter().map(|x| {
                             let summand_name = x.name().ok_or_else(|| anyhow!("summand reference has no name"))?;
                             load(&repository, summand_name)
-                                .with_context(|| format!("failed to load summand '{}'", summand_name))
                         }).collect();
                     let summands_gh = summands_gh?;
                     let summands_refs = summands_gh.iter().collect();

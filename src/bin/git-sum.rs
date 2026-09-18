@@ -134,8 +134,7 @@ fn define_sum<'repo, 'a, T: AsRef<str> + 'a>(
 }
 
 fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<()> {
-    let gh = load(repository, &args.sum_name)
-        .with_context(|| format!("failed to load sum '{}'", args.sum_name))?;
+    let gh = load(repository, &args.sum_name)?;
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
         sum.reference.borrow_mut().delete().context("failed to delete sum reference")?;
@@ -164,7 +163,7 @@ fn main() -> Result<()> {
         .with_max_level(clip.verbosity)
         .init();
 
-    let repository = clip.git_repository.open().context("failed to open git repository")?;
+    let repository = clip.git_repository.open()?;
 
     if let Some(command) = clip.command {
         match command {
@@ -210,8 +209,7 @@ fn list_sums(repository: &Repository) -> Result<()> {
 }
 
 fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
-    let gh = load(repository, &args.name)
-        .with_context(|| format!("failed to load sum '{}'", args.name))?;
+    let gh = load(repository, &args.name)?;
     if let GitHierarchy::Sum(sum) = gh {
         println!("sum {}", sum_fmt(sum.name()));
         let summands = sum.summands(repository);
@@ -222,7 +220,7 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
         let summands_gh: Result<Vec<GitHierarchy<'_>>, _> =
             summands.into_iter().map(|x| {
                 let name = x.name().ok_or_else(|| anyhow!("summand reference missing name"))?;
-                load(repository, name).with_context(|| format!("failed to load summand '{}'", name))
+                load(repository, name)
             }).collect();
         let summands_gh = summands_gh?;
 
@@ -239,8 +237,7 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
 
 
 fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<()> {
-    let gh = load(repository, &args.name)
-        .with_context(|| format!("failed to load sum '{}'", args.name))?;
+    let gh = load(repository, &args.name)?;
     if let GitHierarchy::Sum(mut sum) = gh {
         let sumrefs = resolve_references_from_user(repository, &args.summands)
             .with_context(|| format!("failed to resolve summands for sum '{}'", args.name))?;
@@ -253,8 +250,7 @@ fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<()> {
 }
 
 fn remove_from_sum(repository: &Repository, args: &RemoveArgs) -> Result<()> {
-    let gh = load(repository, &args.name)
-        .with_context(|| format!("failed to load sum '{}'", args.name))?;
+    let gh = load(repository, &args.name)?;
 
     if let GitHierarchy::Sum(mut sum) = gh {
         let sumrefs = resolve_references_from_user(repository, &args.summands)

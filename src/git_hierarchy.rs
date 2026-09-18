@@ -15,6 +15,7 @@ use crate::graph::discover::NodeExpander;
 use crate::utils::{concatenate, extract_name};
 
 
+use anyhow::{Context, Result as AnyhowResult, bail};
 use git2::{Commit, Oid, Reference, Repository, Revwalk, Sort, Error,ErrorCode};
 
 // low level sum & segment
@@ -602,26 +603,28 @@ impl<'repo> GitHierarchy<'repo> {
 pub fn load<'repo>(
     repository: &'repo Repository,
     name: &'_ str,
-) -> Result<GitHierarchy<'repo>, git2::Error> {
+) -> AnyhowResult<GitHierarchy<'repo>> {
     let name = extract_name(name);
     if !Segment::name_is_valid(name)? {
-        return Err(git2::Error::from_str("invalid reference name"));
+        bail!("invalid reference name: {}", name);
     }
-    let reference = repository.resolve_reference_from_short_name(name)?;
+    let reference = repository
+        .resolve_reference_from_short_name(name)
+        .with_context(|| format!("failed to load '{}'", name))?;
 
     if let Ok(base) = repository.find_reference(base_name(name).as_str()) {
         if let Ok(start) = repository.find_reference(start_name(name).as_str()) {
             info!("segment detected: {}", name);
             return Ok(GitHierarchy::Segment(Segment::new(reference, base, start)));
         } else {
-            return Err(git2::Error::from_str("start not found"));
+            bail!("start reference not found for segment '{}'", name);
         };
     }
 
     let summands = sum_summands(repository, name);
     if !summands.is_empty() {
         info!("sum detected: {}", name);
-        return Ok(GitHierarchy::Sum(Sum::new(reference, summands)))
+        return Ok(GitHierarchy::Sum(Sum::new(reference, summands)));
     };
 
     info!("plain reference: {}", name);

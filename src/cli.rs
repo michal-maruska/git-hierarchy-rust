@@ -1,3 +1,4 @@
+use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 use git2::Repository;
 use crate::base::open_repository;
@@ -13,8 +14,8 @@ pub struct ClapGitRepo {
 }
 
 impl ClapGitRepo {
-    pub fn open(&self) -> Result<Repository, git2::Error> {
-        open_repository(self.directory.as_ref())
+    pub fn open(&self) -> Result<Repository> {
+        open_repository(self.directory.as_ref()).context("failed to open git repository")
     }
 }
 
@@ -23,7 +24,7 @@ impl ClapGitRepo {
 pub fn resolve_references_from_user<'repo, S, VS>(
     repository: &'repo Repository,
     names: VS,
-) -> Result<Vec<git2::Reference<'repo>>, git2::Error>
+) -> Result<Vec<git2::Reference<'repo>>>
 where
     VS: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -32,12 +33,11 @@ where
     for x in names {
         let name = x.as_ref();
         if !Segment::name_is_valid(name)? {
-            return Err(git2::Error::from_str(&format!(
-                "invalid reference name: {}",
-                name
-            )));
+            bail!("invalid reference name: {}", name);
         }
-        let r = repository.resolve_reference_from_short_name(name)?;
+        let r = repository
+            .resolve_reference_from_short_name(name)
+            .with_context(|| format!("failed to resolve reference '{}'", name))?;
         refs.push(r);
     }
     Ok(refs)
@@ -48,7 +48,7 @@ where
 pub fn resolve_reference_names_from_user(
     repository: &Repository,
     names: &mut [String],
-) -> Result<(), git2::Error> {
+) -> Result<()> {
     for e in names {
         Segment::check_name_is_valid(e)?;
         if let Ok(r) = repository.resolve_reference_from_short_name(e) {
