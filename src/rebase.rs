@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use std::fs::{self,OpenOptions};
 use std::io::{Write,self};
 use std::path::PathBuf;
-use std::process::exit; // fixme: drop in library
 #[allow(unused_imports)]
 use tracing::{span, Level, debug, info, warn,error};
 use colored::Colorize;
@@ -115,55 +114,55 @@ fn read_cherry_pick_head(repository: &'_ Repository) -> Result<String, io::Error
 ///
 fn commit_cherry_picked<'repo>(repository: &'repo Repository,
                                original: &Commit<'repo>,
-                               parent_commit: &Commit<'repo>) -> Oid {
-    let mut index = repository.index().unwrap();
+                               parent_commit: &Commit<'repo>) -> Result<Oid, RebaseError> {
+    let mut index = repository.index()?;
     if index.has_conflicts() {
         eprintln!("{}",Colorize::red("SORRY conflicts detected"));
         eprintln!("{}",Colorize::red("resolve them, and either commit or stage them"));
 
         // next time resume from this, `exclusive'.
-        record_processed_commit(repository, original.id(), true).unwrap();
-        exit(1);
+        record_processed_commit(repository, original.id(), true)?;
+        return Err(RebaseError::Default);
     }
 
-    let statusses = staged_files(repository).unwrap();
+    let statusses = staged_files(repository)?;
     if statusses.is_empty() {
         eprintln!("SORRY nothing staged, empty -- skip?");
-        record_processed_commit(repository, original.id(), true).unwrap();
+        record_processed_commit(repository, original.id(), true)?;
         // so we have .git/CHERRY_PICK_HEAD ?
-        exit(1);
+        return Err(RebaseError::Default);
     } else {
         info!("something staged");
     }
 
-    let tree_oid = index.write_tree().unwrap();
+    let tree_oid = index.write_tree()?;
     let new_oid =
-        if repository.head().unwrap().peel_to_tree().unwrap().id() == tree_oid {
+        if repository.head()?.peel_to_tree()?.id() == tree_oid {
             warn!("SORRY nothing staged, empty -- skip?");
             // bug: and no changes in the worktree!
-            repository.head().unwrap().target().unwrap()
+            repository.head()?.target().ok_or_else(|| git2::Error::from_str("HEAD missing target"))?
             // silently skipping over?
             // exit(1);
         } else {
             // same tree id ... it was empty!
 
             //  "cannot create a tree from a not fully merged index."
-            let tree = repository.find_tree(tree_oid).unwrap();
+            let tree = repository.find_tree(tree_oid)?;
 
             repository.commit(
                 Some("HEAD"),
                 // copy over:
                 &original.author(),
                 &original.committer(),
-                original.message().unwrap(),
+                original.message().ok_or_else(|| git2::Error::from_str("commit message missing"))?,
                 // and timestamps? part of those ^^ !
                 &tree,
                 &[parent_commit],
-            ).unwrap()
+            )?
         };
 
-    repository.cleanup_state().unwrap();
-    new_oid
+    repository.cleanup_state()?;
+    Ok(new_oid)
 }
 
 
@@ -172,58 +171,42 @@ fn commit_cherry_picked<'repo>(repository: &'repo Repository,
 fn cherry_pick_commits<'repo, T>(repository: &'repo Repository,
                                  iter: T,
                                  base_commit: Commit<'repo>)
-                                 -> Result<Commit<'repo>, Error>
+                                 -> Result<Commit<'repo>, RebaseError>
     where T: Iterator<Item = Result<Oid, Error> >
 {
-    let final_commit =
-        iter.fold(base_commit,
-                  |base_commit, oid_to_apply| {
+    let mut current_commit = base_commit;
+    for oid_res in iter {
+        let oid = oid_res?;
+        let to_apply = repository.find_commit(oid)?;
 
-                      let to_apply = repository.find_commit(oid_to_apply.unwrap()).unwrap();
+        info!("cherry-pick commit: {:?}", to_apply);
 
-                      // use `cherrypick'
+        let mut checkout_opts = CheckoutBuilder::new();
+        checkout_opts.safe();
+        let mut cherrypick_opts = CherrypickOptions::new();
+        cherrypick_opts.checkout_builder(checkout_opts);
 
-                      info!("cherry-pick commit: {:?}", to_apply);
+        let result = repository.cherrypick(&to_apply, Some(&mut cherrypick_opts));
 
-                      let mut checkout_opts = CheckoutBuilder::new();
-                      checkout_opts.safe();
-                      let mut cherrypick_opts = CherrypickOptions::new();
-                      cherrypick_opts.checkout_builder(checkout_opts);
+        if let Err(e) = result {
+            eprintln!("cherrypick failed on {}\n {:?}", to_apply.id(), e);
+            eprintln!("error: code{:?}, class {:?}: {}", e.code(), e.class(), e.message());
+            record_processed_commit(repository, to_apply.id(), true)?;
 
-                      let result = repository.cherrypick(&to_apply, Some(&mut cherrypick_opts));
+            let index = repository.index()?;
+            if index.has_conflicts() {
+                eprintln!("{}: SORRY conflicts detected", line!());
+            }
 
-                      if let Err(e) = result {
-                          eprintln!("cherrypick failed on {}\n {:?}",
-                                    to_apply.id(), e);
-                          eprintln!("error: code{:?}, class {:?}: {}",
-                                    e.code(),
-                                    e.class(),
-                                    e.message()
-                          );
-                          // code: -13, klass: 22, message: "1 uncommitted change would be overwritten by merge" }
-                          record_processed_commit(repository, to_apply.id(), true).unwrap();
+            eprintln!("should skip");
+            return Err(RebaseError::Git2(e));
+        }
 
-                          let index = repository.index().unwrap();
-                          if index.has_conflicts() {
-                              eprintln!("{}: SORRY conflicts detected", line!());
-                          }
+        let new_oid = commit_cherry_picked(repository, &to_apply, &current_commit)?;
+        current_commit = repository.find_commit(new_oid)?;
+    }
 
-                          eprintln!("should skip");
-                          exit(1);
-                      }
-
-                      let new_oid = commit_cherry_picked(repository, &to_apply, &base_commit);
-                      let new_commit = repository.find_commit(new_oid).unwrap();
-
-                      if false {
-                          info!("SLEEP");
-                          // sleep(Duration::from_secs(2));
-                      }
-
-                      // return:
-                      new_commit});
-
-    Ok(final_commit)
+    Ok(current_commit)
 }
 
 /// Given a @segment, and HEAD ....
@@ -286,9 +269,9 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
         }
     } else {
         let commit = cherry_pick_commits(repository,
-                                         segment.iter(repository).unwrap(),
-                                         segment.base(repository).peel_to_commit().unwrap()
-                                         ).unwrap();
+                                         segment.iter(repository)?,
+                                         segment.base(repository).peel_to_commit()?
+                                         )?;
         // move
         segment.reset(repository, commit.id());
     }
@@ -357,7 +340,7 @@ fn continue_segment_cherry_pick<'repo>(repository: &'repo Repository,
 
     let commit = cherry_pick_commits(repository,
                                      peek.skip(skip),
-                                     parent).unwrap();
+                                     parent)?;
     // might need this if nothing to cherrypick anymore.
     segment.reset(repository, commit.id());
     Ok(())
@@ -433,11 +416,11 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
                     debug!("non-empty index -> commit...");
                     let to_apply = repository.find_commit(commit_id).unwrap();
 
-                    let parent = repository.head().unwrap().peel_to_commit().unwrap();
+                    let parent = repository.head()?.peel_to_commit()?;
                     let new_oid = commit_cherry_picked(repository,
                                                        // todo: it's okay to skip:
                                                        &to_apply,
-                                                       &parent);
+                                                       &parent)?;
                     debug!("new commit created {new_oid}");
                     // parent = repository.find_commit(new_oid).unwrap();
                 } else {

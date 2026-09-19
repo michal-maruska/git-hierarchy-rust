@@ -36,7 +36,6 @@ use crate::graph::discover_pet::find_hierarchy;
 use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load};
 
 use anyhow::{Context, Result, anyhow, bail};
-use std::process::exit;
 use colored::Colorize;
 
 /*
@@ -213,10 +212,10 @@ fn remerge_sum<'repo>(
 
             // make if a function:
             // oid = save_index_with( message, signature);
-            let mut index = repository.index().unwrap();
+            let mut index = repository.index().map_err(RebaseError::Git2)?;
             if index.has_conflicts() {
                 info!("{}: SORRY conflicts detected", line!());
-                exit(1);
+                return Err(RebaseError::Default);
             }
             let id = index.write_tree().unwrap();
             let tree = repository.find_tree(id).unwrap();
