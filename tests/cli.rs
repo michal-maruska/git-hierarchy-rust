@@ -196,3 +196,23 @@ fn test_cli_segment_rejects_invalid_name() {
 
     assert!(!output.status.success());
 }
+
+#[test]
+fn test_cli_segment_update_rejects_invalid_base_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("update")
+        .arg("--")
+        .arg("feature")
+        .arg("-invalid-base")
+        .output()
+        .expect("failed to execute git-segment update");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid reference name: -invalid-base"), "Stderr was: {}", stderr);
+}
