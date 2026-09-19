@@ -196,3 +196,45 @@ fn test_cli_segment_rejects_invalid_name() {
 
     assert!(!output.status.success());
 }
+
+#[test]
+fn test_cli_walk_down_success() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let seg_output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to define segment");
+    assert!(seg_output.status.success());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-walk-down");
+
+    assert!(output.status.success(), "Stderr was: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("feature"));
+}
+
+#[test]
+fn test_cli_walk_down_rejects_invalid_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--")
+        .arg("-invalid-root")
+        .output()
+        .expect("failed to execute git-walk-down");
+
+    assert!(!output.status.success());
+}
