@@ -212,6 +212,7 @@ pub fn resolve_user_commit<'repo>(repository: &'repo Repository, input: &str) ->
             }
         }
 
+        // now to see the input as a ref-name
         if let Ok(reference) = repository.resolve_reference_from_short_name(input) {
             return reference.peel_to_commit().ok();
         }
