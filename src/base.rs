@@ -347,12 +347,12 @@ mod tests {
         repo.branch("main", &commit, false).unwrap();
 
         // Valid inputs resolve correctly
-        assert!(resolve_user_commit(repo, &commit.id().to_string()).is_some());
-        assert!(resolve_user_commit(repo, "main").is_some());
+        assert_eq!(resolve_user_commit(repo, &commit.id().to_string()).unwrap().id(), commit.id());
+        assert_eq!(resolve_user_commit(repo, "main").unwrap().id(), commit.id());
 
-        // Invalid inputs and option injection attempts return None
-        assert!(resolve_user_commit(repo, "-option-inject").is_none());
-        assert!(resolve_user_commit(repo, "--flag").is_none());
-        assert!(resolve_user_commit(repo, "nonexistent-branch").is_none());
+        // Invalid inputs and option injection attempts return Err
+        assert!(resolve_user_commit(repo, "-option-inject").is_err());
+        assert!(resolve_user_commit(repo, "--flag").is_err());
+        assert!(resolve_user_commit(repo, "nonexistent-branch").is_err());
     }
 }
