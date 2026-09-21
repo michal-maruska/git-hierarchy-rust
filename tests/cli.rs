@@ -368,21 +368,20 @@ fn test_cli_rebase_cherrypick_failed_uncommitted_changes_continuation() {
     index.write().unwrap();
     let base_commit = temp_repo.create_commit("initial commit", &[]);
     temp_repo.repo.branch("main", &base_commit, true).unwrap();
+    temp_repo.repo.set_head("refs/heads/main").unwrap();
 
-    // 2. Define segment 'feature' with base 'main'
+    // 2. Define and checkout segment 'feature' with base 'main' using 'create'
     let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
         .arg("-g")
         .arg(&temp_repo.path)
+        .arg("create")
         .arg("feature")
         .arg("main")
         .output()
-        .expect("failed to execute git-segment define");
-    assert!(output.status.success());
+        .expect("failed to execute git-segment create");
+    assert!(output.status.success(), "git-segment create failed: {}", String::from_utf8_lossy(&output.stderr));
 
     // 3. Create feature segment commit on feature branch:
-    temp_repo.repo.set_head("refs/heads/feature").unwrap();
-    temp_repo.repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
-
     let file2_path = temp_repo.path.join("file2.txt");
     std::fs::write(&file2_path, "feature file2 content\n").unwrap();
     let mut index = temp_repo.repo.index().unwrap();
