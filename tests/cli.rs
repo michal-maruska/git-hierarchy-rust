@@ -419,7 +419,7 @@ fn test_cli_rebase_cherrypick_failed_uncommitted_changes_continuation() {
     // Check marker file contents
     let marker_path = temp_repo.repo.commondir().join(".segment-cherry-pick");
     let marker_content = std::fs::read_to_string(&marker_path).unwrap();
-    println!("Marker content after failure:\n{}", marker_content);
+    assert_eq!(marker_content, format!("feature\n0\n{}\n", feature_commit.id()));
 
     // 7. Clean uncommitted change in worktree
     std::fs::remove_file(&file2_path).unwrap();
