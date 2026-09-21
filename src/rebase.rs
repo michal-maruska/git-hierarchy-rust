@@ -108,6 +108,23 @@ fn read_cherry_pick_head(repository: &'_ Repository) -> Result<String, io::Error
     fs::read_to_string(repository.commondir().join("CHERRY_PICK_HEAD"))
 }
 
+fn is_cherry_pick_applied(repository: &Repository) -> bool {
+    if repository.state() == RepositoryState::CherryPick {
+        return true;
+    }
+    if let Ok(index) = repository.index() {
+        if index.has_conflicts() {
+            return true;
+        }
+    }
+    if let Ok(staged) = staged_files(repository) {
+        if !staged.is_empty() {
+            return true;
+        }
+    }
+    false
+}
+
 /// Creates each commit during the rebase/cherry-picking: both in OK flow
 /// and after manual intervention.  Can the user do the commit himself? -- do we setup the ....
 /// @original is the original commit we try to clone.
@@ -191,14 +208,14 @@ fn cherry_pick_commits<'repo, T>(repository: &'repo Repository,
         if let Err(e) = result {
             eprintln!("cherrypick failed on {}\n {:?}", to_apply.id(), e);
             eprintln!("error: code{:?}, class {:?}: {}", e.code(), e.class(), e.message());
-            record_processed_commit(repository, to_apply.id(), true)?;
+            let applied = is_cherry_pick_applied(repository);
+            record_processed_commit(repository, to_apply.id(), applied)?;
 
             let index = repository.index()?;
             if index.has_conflicts() {
                 eprintln!("{}: SORRY conflicts detected", line!());
             }
 
-            eprintln!("should skip");
             return Err(RebaseError::Git2(e));
         }
 
@@ -445,7 +462,7 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
 
         eprintln!("should cherry-pick starting from oid {} + {}", commit_id, skip);
         // so we should save it now!
-        record_processed_commit(repository, commit_id, true).unwrap();
+        record_processed_commit(repository, commit_id, skip != 0).unwrap();
 
         // assert!(repository_clean(repository));
         continue_segment_cherry_pick(repository, &segment, commit_id, skip)?; // starting from where?
