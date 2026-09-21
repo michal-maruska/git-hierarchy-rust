@@ -137,16 +137,15 @@ fn commit_cherry_picked<'repo>(repository: &'repo Repository,
         eprintln!("{}",Colorize::red("SORRY conflicts detected"));
         eprintln!("{}",Colorize::red("resolve them, and either commit or stage them"));
 
-        let applied = is_cherry_pick_applied(repository);
-        record_processed_commit(repository, original.id(), applied)?;
+        // next time resume from this, `exclusive'.
+        record_processed_commit(repository, original.id(), true)?;
         return Err(RebaseError::Default);
     }
 
     let statusses = staged_files(repository)?;
     if statusses.is_empty() {
         eprintln!("SORRY nothing staged, empty -- skip?");
-        let applied = is_cherry_pick_applied(repository);
-        record_processed_commit(repository, original.id(), applied)?;
+        record_processed_commit(repository, original.id(), true)?;
         // so we have .git/CHERRY_PICK_HEAD ?
         return Err(RebaseError::Default);
     } else {
