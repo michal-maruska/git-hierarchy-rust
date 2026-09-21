@@ -108,6 +108,23 @@ fn read_cherry_pick_head(repository: &'_ Repository) -> Result<String, io::Error
     fs::read_to_string(repository.commondir().join("CHERRY_PICK_HEAD"))
 }
 
+fn is_cherry_pick_applied(repository: &Repository) -> bool {
+    if repository.state() == RepositoryState::CherryPick {
+        return true;
+    }
+    if let Ok(index) = repository.index() {
+        if index.has_conflicts() {
+            return true;
+        }
+    }
+    if let Ok(staged) = staged_files(repository) {
+        if !staged.is_empty() {
+            return true;
+        }
+    }
+    false
+}
+
 /// Creates each commit during the rebase/cherry-picking: both in OK flow
 /// and after manual intervention.  Can the user do the commit himself? -- do we setup the ....
 /// @original is the original commit we try to clone.
@@ -120,15 +137,16 @@ fn commit_cherry_picked<'repo>(repository: &'repo Repository,
         eprintln!("{}",Colorize::red("SORRY conflicts detected"));
         eprintln!("{}",Colorize::red("resolve them, and either commit or stage them"));
 
-        // next time resume from this commit without skipping.
-        record_processed_commit(repository, original.id(), false)?;
+        let applied = is_cherry_pick_applied(repository);
+        record_processed_commit(repository, original.id(), applied)?;
         return Err(RebaseError::Default);
     }
 
     let statusses = staged_files(repository)?;
     if statusses.is_empty() {
         eprintln!("SORRY nothing staged, empty -- skip?");
-        record_processed_commit(repository, original.id(), false)?;
+        let applied = is_cherry_pick_applied(repository);
+        record_processed_commit(repository, original.id(), applied)?;
         // so we have .git/CHERRY_PICK_HEAD ?
         return Err(RebaseError::Default);
     } else {
@@ -191,7 +209,8 @@ fn cherry_pick_commits<'repo, T>(repository: &'repo Repository,
         if let Err(e) = result {
             eprintln!("cherrypick failed on {}\n {:?}", to_apply.id(), e);
             eprintln!("error: code{:?}, class {:?}: {}", e.code(), e.class(), e.message());
-            record_processed_commit(repository, to_apply.id(), false)?;
+            let applied = is_cherry_pick_applied(repository);
+            record_processed_commit(repository, to_apply.id(), applied)?;
 
             let index = repository.index()?;
             if index.has_conflicts() {
