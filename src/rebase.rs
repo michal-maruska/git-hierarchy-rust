@@ -307,7 +307,7 @@ fn continue_segment_cherry_pick<'repo>(repository: &'repo Repository,
 ) -> Result<(), RebaseError> {
     // Find & skip:
     let iter = segment.iter(repository)?
-        .skip_while(|x| x.as_ref().map_or(false, |oid| oid != &commit_id));
+        .skip_while(|x| x.as_ref().is_ok_and(|oid| oid != &commit_id));
 
     let mut peek = iter.peekable();
     if peek.peek().is_none() {
