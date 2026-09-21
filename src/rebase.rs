@@ -454,9 +454,9 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
                 // this means .... we couldn't start cherry-pick?
                 if let Some((oid, stored_skip)) = rest {
                     skip = stored_skip;
-                    Oid::from_str(&oid).unwrap()
+                    Oid::from_str(&oid).map_err(|_| RebaseError::WrongMarkerFile("invalid OID in marker file".to_string()))?
                 } else {
-                    panic!("don't know which commit to continue from")
+                    return Err(RebaseError::WrongMarkerFile("missing commit to continue from".to_string()));
                 }
             };
 
@@ -782,13 +782,156 @@ mod tests {
         let test_repo = TestRepo::new();
         let repo = &test_repo.repo;
 
+        // 1. Non-existent marker file returns Ok(None)
         assert!(segment_to_continue(repo).unwrap().is_none());
 
+        // 2. Empty or whitespace-only marker file returns Err
         create_marker_file(repo, "").unwrap();
-        assert!(segment_to_continue(repo).is_err());
+        assert!(matches!(segment_to_continue(repo), Err(RebaseError::WrongMarkerFile(_))));
 
-        create_marker_file(repo, "feature\nnot_a_number\nsome_oid\n").unwrap();
-        assert!(segment_to_continue(repo).is_err());
+        create_marker_file(repo, "   \n").unwrap();
+        assert!(matches!(segment_to_continue(repo), Err(RebaseError::WrongMarkerFile(_))));
+
+        // 3. Invalid segment name (leading hyphen)
+        create_marker_file(repo, "-invalid-seg\n").unwrap();
+        assert!(matches!(segment_to_continue(repo), Err(RebaseError::WrongMarkerFile(_))));
+
+        // 4. Missing skip line (only segment name and OID line)
+        create_marker_file(repo, "feature\n0123456789abcdef0123456789abcdef01234567\n").unwrap();
+        assert!(matches!(segment_to_continue(repo), Err(RebaseError::WrongMarkerFile(_))));
+
+        // 5. Non-numeric skip value
+        create_marker_file(repo, "feature\nnot_a_number\n0123456789abcdef0123456789abcdef01234567\n").unwrap();
+        assert!(matches!(segment_to_continue(repo), Err(RebaseError::WrongMarkerFile(_))));
+    }
+
+    #[test]
+    fn test_segment_to_continue_valid_marker_and_multiple_entries() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        // Valid marker file with only segment name
+        create_marker_file(repo, "feature\n").unwrap();
+        let (seg, rest) = segment_to_continue(repo).unwrap().unwrap();
+        assert_eq!(seg, "feature");
+        assert!(rest.is_none());
+
+        // Valid marker file with segment name, skip value, and OID
+        let oid1 = "1111111111111111111111111111111111111111";
+        create_marker_file(repo, &format!("feature\n1\n{}\n", oid1)).unwrap();
+        let (seg, rest) = segment_to_continue(repo).unwrap().unwrap();
+        assert_eq!(seg, "feature");
+        let (commit_str, skip) = rest.unwrap();
+        assert_eq!(commit_str, oid1);
+        assert_eq!(skip, 1);
+
+        // Multiple entries recorded in marker file (append mode like record_processed_commit)
+        let oid2 = "2222222222222222222222222222222222222222";
+        record_processed_commit(repo, Oid::from_str(oid2).unwrap(), true).unwrap();
+        let (seg, rest) = segment_to_continue(repo).unwrap().unwrap();
+        assert_eq!(seg, "feature");
+        let (commit_str, skip) = rest.unwrap();
+        assert_eq!(commit_str, oid2);
+        assert_eq!(skip, 1);
+    }
+
+    fn create_commit_with_file<'repo>(
+        repo: &'repo Repository,
+        message: &str,
+        filename: &str,
+        content: &str,
+        parents: &[&Commit<'_>],
+    ) -> Commit<'repo> {
+        let path = repo.workdir().unwrap().join(filename);
+        fs::write(&path, content).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new(filename)).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let sig = repo.signature().unwrap();
+        let oid = repo.commit(None, &sig, &sig, message, &tree, parents).unwrap();
+        repo.find_commit(oid).unwrap()
+    }
+
+    #[test]
+    fn test_rebase_segment_continue_scenarios() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let base_commit = create_commit_with_file(repo, "base commit", "file0.txt", "base", &[]);
+        let commit1 = create_commit_with_file(repo, "commit 1", "file1.txt", "c1", &[&base_commit]);
+        let commit2 = create_commit_with_file(repo, "commit 2", "file2.txt", "c2", &[&commit1]);
+
+        let base_branch = repo.branch("main", &base_commit, false).unwrap();
+
+        let _segment = Segment::create(
+            repo,
+            "feature",
+            base_branch.get(),
+            base_commit.id(),
+            commit2.id(),
+        ).unwrap();
+
+        // 1. Error handling when state is clean but marker has no commit record
+        create_marker_file(repo, "feature\n").unwrap();
+        let res = rebase_segment_continue(repo);
+        assert!(matches!(res, Err(RebaseError::WrongMarkerFile(_))));
+
+        // 2. Error handling when state is clean but marker has invalid OID
+        create_marker_file(repo, "feature\n1\ninvalid_oid\n").unwrap();
+        let res = rebase_segment_continue(repo);
+        assert!(matches!(res, Err(RebaseError::WrongMarkerFile(_))));
+
+        // 3. User resolved & committed manually (or skipped), repo is clean, marker has last processed commit OID
+        // We set HEAD to base_commit, marker specifies commit1 and skip = 1.
+        checkout_new_head_at(repo, None, &base_commit);
+        repo.set_head_detached(base_commit.id()).unwrap();
+        create_marker_file(repo, "feature\n").unwrap();
+        record_processed_commit(repo, commit1.id(), true).unwrap();
+
+        let res = rebase_segment_continue(repo);
+        assert!(res.is_ok(), "Scenario 3 failed: {:?}", res.err());
+        // Marker file should be cleaned up after successful continuation
+        assert!(segment_to_continue(repo).unwrap().is_none());
+
+        // 4. User resolved & unstaged change (skip) during CherryPick state
+        // Re-setup segment reference back to original commit2 and start back to base_commit
+        repo.reference("refs/heads/feature", commit2.id(), true, "reset").unwrap();
+        repo.reference("refs/start/feature", base_commit.id(), true, "reset").unwrap();
+
+        checkout_new_head_at(repo, None, &base_commit);
+        repo.set_head_detached(base_commit.id()).unwrap();
+        create_marker_file(repo, "feature\n").unwrap();
+        // Write CHERRY_PICK_HEAD
+        fs::write(repo.commondir().join("CHERRY_PICK_HEAD"), format!("{}\n", commit1.id())).unwrap();
+        assert_eq!(repo.state(), RepositoryState::CherryPick);
+
+        let res = rebase_segment_continue(repo);
+        assert!(res.is_ok(), "Scenario 4 failed: {:?}", res.err());
+        assert!(segment_to_continue(repo).unwrap().is_none());
+
+        // 5. User resolved conflicts & staged changes during CherryPick state
+        repo.reference("refs/heads/feature", commit2.id(), true, "reset").unwrap();
+        repo.reference("refs/start/feature", base_commit.id(), true, "reset").unwrap();
+
+        checkout_new_head_at(repo, None, &base_commit);
+        repo.set_head_detached(base_commit.id()).unwrap();
+        create_marker_file(repo, "feature\n").unwrap();
+        fs::write(repo.commondir().join("CHERRY_PICK_HEAD"), format!("{}\n", commit1.id())).unwrap();
+
+        // Stage a resolved change in the index
+        let resolved_file = repo.workdir().unwrap().join("resolved.txt");
+        fs::write(&resolved_file, "resolved content").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("resolved.txt")).unwrap();
+        index.write().unwrap();
+
+        assert_eq!(repo.state(), RepositoryState::CherryPick);
+
+        let res = rebase_segment_continue(repo);
+        assert!(res.is_ok(), "Scenario 5 failed: {:?}", res.err());
+        assert!(segment_to_continue(repo).unwrap().is_none());
     }
 }
 
