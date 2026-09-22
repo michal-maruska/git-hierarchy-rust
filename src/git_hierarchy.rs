@@ -234,13 +234,20 @@ impl<'repo> Segment<'repo> {
     // start to base.
     // todo: reflog message?
     pub fn reset(&self, repository: &'repo Repository, head_oid: Oid) -> Result<(), Error> {
+        let old_head_oid = self
+            .reference
+            .borrow()
+            .target()
+            .ok_or_else(|| Error::from_str("head reference target missing"))?;
 
         if true {
             let head_reference = self.reference.borrow();
             // I want to refresh this!
-            debug!("reset: the head itself? {} with {}",
-                   head_reference.name().unwrap_or(""),
-                   head_oid);
+            debug!(
+                "reset: the head itself? {} with {}",
+                head_reference.name().unwrap_or(""),
+                head_oid
+            );
             drop(head_reference);
         }
 
@@ -249,11 +256,55 @@ impl<'repo> Segment<'repo> {
         *ref_borrow = updated_ref;
         drop(ref_borrow);
 
-        let base = self.base(repository);
-        debug!("base to {:?}", base.target());
-        // _peel fails!
-        let oid = base.target().ok_or_else(|| Error::from_str("base reference target missing"))?;
-        self.set_start(repository, oid)
+        let start_res = (|| -> Result<(), Error> {
+            let base_sym_target = self
+                .base
+                .borrow()
+                .symbolic_target()
+                .map(|s| s.to_string())
+                .ok_or_else(|| Error::from_str("base should be a symbolic reference"))?;
+            let base_ref = repository.find_reference(&base_sym_target)?;
+            let oid = base_ref
+                .target()
+                .ok_or_else(|| Error::from_str("base reference target missing"))?;
+            self.set_start(repository, oid)
+        })();
+
+        if let Err(err) = start_res {
+            let mut rollback_succeeded = false;
+            let mut ref_borrow = self.reference.borrow_mut();
+            if let Ok(restored_ref) = ref_borrow.set_target(old_head_oid, "reset rollback") {
+                *ref_borrow = restored_ref;
+                rollback_succeeded = true;
+            }
+            drop(ref_borrow);
+
+            if rollback_succeeded {
+                eprintln!(
+                    "Error setting start reference for segment '{}': {}.\n\
+                     Rolled back head reference to {}.\n\
+                     Please check segment configuration with 'git-segment' and verify its base reference.",
+                    self.name(),
+                    err,
+                    old_head_oid
+                );
+            } else {
+                eprintln!(
+                    "Error setting start reference for segment '{}': {}.\n\
+                     Failed to rollback head reference back to {}.\n\
+                     The segment head is currently at {} and start reference failed to update.\n\
+                     Please manually restore head and start references for segment '{}'.",
+                    self.name(),
+                    err,
+                    old_head_oid,
+                    head_oid,
+                    self.name()
+                );
+            }
+            return Err(err);
+        }
+
+        Ok(())
     }
 
     pub fn set_start(&self, repository: &'repo Repository, oid: Oid) -> Result<(), Error> {
@@ -918,5 +969,45 @@ mod tests {
         assert!(segment.reset(repo, commit3.id()).is_ok());
         assert_eq!(segment.reference.borrow().target().unwrap(), commit3.id());
         assert_eq!(repo.find_reference("refs/start/feature").unwrap().target().unwrap(), commit1.id());
+    }
+
+    #[test]
+    fn test_segment_reset_atomic_rollback_on_failure() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+        let commit3 = create_commit(repo, "commit 3", &[&commit2]);
+
+        let base_branch = repo.branch("main", &commit1, false).unwrap();
+
+        let segment = Segment::create(
+            repo,
+            "feature",
+            base_branch.get(),
+            commit1.id(),
+            commit2.id(),
+        )
+        .unwrap();
+
+        assert_eq!(segment.reference.borrow().target().unwrap(), commit2.id());
+
+        // Delete start reference to force a failure when setting start target in reset
+        let mut start_ref = repo.find_reference("refs/start/feature").unwrap();
+        start_ref.delete().unwrap();
+
+        // reset should fail and roll back the head reference to commit2.id()
+        let res = segment.reset(repo, commit3.id());
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert_eq!(err.code(), git2::ErrorCode::NotFound);
+
+        // Verify head reference was rolled back to commit2.id() and not left at commit3.id()
+        assert_eq!(
+            repo.find_reference("refs/heads/feature").unwrap().target().unwrap(),
+            commit2.id()
+        );
+        assert_eq!(segment.reference.borrow().target().unwrap(), commit2.id());
     }
 }
