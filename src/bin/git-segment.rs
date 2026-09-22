@@ -153,7 +153,7 @@ fn delete(repository: &Repository, args: &DeleteCmd) -> Result<()> {
         println!("Delete {} in {:?}", args.segment_name, repository.path());
 
         segment.base.borrow_mut().delete().context("failed to delete segment base reference")?;
-        segment._start.delete().context("failed to delete segment start reference")?;
+        segment.start.delete().context("failed to delete segment start reference")?;
         segment.reference.borrow_mut().delete().context("failed to delete segment reference")?;
         Ok(())
     } else {
