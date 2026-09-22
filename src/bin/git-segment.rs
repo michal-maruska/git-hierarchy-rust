@@ -251,7 +251,8 @@ fn main() -> Result<()> {
                         .with_context(|| anyhow!("failed to resolve commit '{}'", args.commit))?;
                     let oid = commit.id();
                     println!("restart from {} {}", args.commit, oid);
-                    segment.set_start(&repository, oid);
+                    segment.set_start(&repository, oid)
+                        .with_context(|| format!("failed to set start of segment '{}' to {}", args.segment_name, oid))?;
                 } else {
                     bail!("{} is not a segment", args.segment_name);
                 }

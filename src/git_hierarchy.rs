@@ -233,39 +233,36 @@ impl<'repo> Segment<'repo> {
     // reference to head_oid
     // start to base.
     // todo: reflog message?
-    pub fn reset(&self, repository: &'repo Repository, head_oid: Oid) {
+    pub fn reset(&self, repository: &'repo Repository, head_oid: Oid) -> Result<(), Error> {
 
         if true {
             let head_reference = self.reference.borrow();
             // I want to refresh this!
             debug!("reset: the head itself? {} with {}",
-                   head_reference.name().unwrap(),
+                   head_reference.name().unwrap_or(""),
                    head_oid);
             drop(head_reference);
         }
 
-        // we cannot extract other references from there.
-        self.reference.replace_with(|r|
-                                    r.set_target(head_oid, "rebased").unwrap());
+        let mut ref_borrow = self.reference.borrow_mut();
+        let updated_ref = ref_borrow.set_target(head_oid, "rebased")?;
+        *ref_borrow = updated_ref;
+        drop(ref_borrow);
 
         let base = self.base(repository);
         debug!("base to {:?}", base.target());
         // _peel fails!
-        let oid = base.target().unwrap();
-        self.set_start(repository, oid);
+        let oid = base.target().ok_or_else(|| Error::from_str("base reference target missing"))?;
+        self.set_start(repository, oid)
     }
 
-    pub fn set_start(&self, repository: &'repo Repository, oid: Oid) {
-        // fixme: what? ref -> name -> ref? b/c &self is not &mut?
-        let start_ref_name = self._start.name().unwrap();
-        let mut start_ref = repository.find_reference(start_ref_name).unwrap();
+    pub fn set_start(&self, repository: &'repo Repository, oid: Oid) -> Result<(), Error> {
+        let start_ref_name = self._start.name().ok_or_else(|| Error::from_str("start reference must have a name"))?;
+        let mut start_ref = repository.find_reference(start_ref_name)?;
 
-
-        // debug!("reset: {} to {}", self.name(), oid);
         info!("setting {} to {}", start_ref_name, oid);
-        if start_ref.set_target(oid, REBASED_REFLOG).is_err() {
-            panic!("failed to set start to new base")
-        }
+        start_ref.set_target(oid, REBASED_REFLOG)?;
+        Ok(())
     }
 
     pub fn start(&self) -> Oid {
@@ -891,5 +888,35 @@ mod tests {
         let mut sum = Sum::create(repo, "sum2", std::iter::once(valid_ref), Some(commit.clone())).unwrap();
         let err_add = sum.add_summands(repo, std::iter::once(&invalid_ref), None);
         assert!(err_add.is_err());
+    }
+
+    #[test]
+    fn test_segment_set_start_and_reset_return_result() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+        let commit3 = create_commit(repo, "commit 3", &[&commit2]);
+
+        let base_branch = repo.branch("main", &commit1, false).unwrap();
+
+        let segment = Segment::create(
+            repo,
+            "feature",
+            base_branch.get(),
+            commit1.id(),
+            commit2.id(),
+        )
+        .unwrap();
+
+        // set_start should return Ok(()) and update start reference target
+        assert!(segment.set_start(repo, commit2.id()).is_ok());
+        assert_eq!(repo.find_reference("refs/start/feature").unwrap().target().unwrap(), commit2.id());
+
+        // reset should return Ok(()) and update head reference and start reference
+        assert!(segment.reset(repo, commit3.id()).is_ok());
+        assert_eq!(segment.reference.borrow().target().unwrap(), commit3.id());
+        assert_eq!(repo.find_reference("refs/start/feature").unwrap().target().unwrap(), commit1.id());
     }
 }
