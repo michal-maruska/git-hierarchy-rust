@@ -234,7 +234,7 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
         return Ok(RebaseResult::Nothing);
     }
 
-    let new_start = segment.base(repository).peel_to_commit().unwrap();
+    let new_start = segment.base(repository).peel_to_commit()?;
 
     if segment.empty(repository)? {
         return rebase_empty_segment(segment, repository);
@@ -249,28 +249,16 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
     info!("rebase_segment: {}", segment.name());
     debug!("rebasing by Cherry-picking {}!", segment.name());
 
-    // fixme: we should convert/wrap this io::error
-    // std::convert::From<std::io::Error>` is not implemented for `rebase::RebaseError`
     create_marker_file(repository, &format!("{}\n", segment.name()))?;
 
-    // checkout to that ref
-    // todo: git stash
-    // must change to the directory!
-
-    let temp_head = TEMP_HEAD_NAME;
-    Branch::name_is_valid(temp_head).unwrap();
-
-    checkout_new_head_at(repository, None, &new_start) ;
+    checkout_new_head_at(repository, None, &new_start);
 
     let sha = new_start.id();
     debug!("set-head: {:?}", &sha);
-    // If I cherry-pick with temp as HEAD, it fails with ... "old reference value does not match"
-    repository.set_head_detached(sha).unwrap();
-    /*
-    repository.set_head_bytes(sha.as_bytes()).unwrap();
-    */
-    //  "the given reference name 'bdcaa23cbe4ea0b6316caf82a9afb96e7c7f1fe6' is not valid"
-    debug!("checkout: {:?}", repository.head().unwrap().name());
+    repository.set_head_detached(sha)?;
+    if let Ok(head) = repository.head() {
+        debug!("checkout: {:?}", head.name());
+    }
     // bug: goes out of sync.
     if false {
         if !git_run(
@@ -332,8 +320,8 @@ fn continue_segment_cherry_pick<'repo>(repository: &'repo Repository,
                                        skip: usize
 ) -> Result<(), RebaseError> {
     // Find & skip:
-    let iter = segment.iter(repository).unwrap()
-        .skip_while(|x| x.as_ref().unwrap() != &commit_id );
+    let iter = segment.iter(repository)?
+        .skip_while(|x| x.as_ref().map_or(false, |oid| oid != &commit_id));
 
     let mut peek = iter.peekable();
     if peek.peek().is_none() {
@@ -431,7 +419,7 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
 
                     // commit it, or reset the state?
                     debug!("non-empty index -> commit...");
-                    let to_apply = repository.find_commit(commit_id).unwrap();
+                    let to_apply = repository.find_commit(commit_id)?;
 
                     let parent = repository.head()?.peel_to_commit()?;
                     let new_oid = commit_cherry_picked(repository,
@@ -439,36 +427,32 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
                                                        &to_apply,
                                                        &parent)?;
                     debug!("new commit created {new_oid}");
-                    // parent = repository.find_commit(new_oid).unwrap();
                 } else {
                     // the user might have decided to drop this change -- skip over.
-                    // todo: reset
                     info!("Cleaning cherry pick info: user unstaged the change");
-                    repository.cleanup_state().unwrap();
+                    repository.cleanup_state()?;
                 }
                 skip = 1;
                 // we need the next one.
                 commit_id
             } else {
                 debug!("so cherry-pick finished, for some reason we need to continue");
-                // this means .... we couldn't start cherry-pick?
                 if let Some((oid, stored_skip)) = rest {
                     skip = stored_skip;
-                    Oid::from_str(&oid).unwrap()
+                    Oid::from_str(&oid).map_err(|_| RebaseError::WrongMarkerFile("invalid OID in marker file".to_string()))?
                 } else {
-                    panic!("don't know which commit to continue from")
+                    return Err(RebaseError::WrongMarkerFile("no commit info to continue from".to_string()));
                 }
             };
 
         eprintln!("should cherry-pick starting from oid {} + {}", commit_id, skip);
         // so we should save it now!
-        record_processed_commit(repository, commit_id, skip != 0).unwrap();
+        record_processed_commit(repository, commit_id, skip != 0)?;
 
-        // assert!(repository_clean(repository));
-        continue_segment_cherry_pick(repository, &segment, commit_id, skip)?; // starting from where?
+        continue_segment_cherry_pick(repository, &segment, commit_id, skip)?;
 
-        segment.reset(repository,
-                      repository.head().unwrap().peel_to_commit().unwrap().id())?;
+        let head_commit = repository.head()?.peel_to_commit()?;
+        segment.reset(repository, head_commit.id())?;
 
         cleanup_segment_rebase(repository, &segment);
         Ok(RebaseResult::Done)
@@ -481,7 +465,8 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
 fn cleanup_segment_rebase(repository: &Repository, _segment: &Segment<'_>) {
     let path = marker_filename(repository);
     debug!("delete marker: {:?}", path);
-    fs::remove_file(path).unwrap();
+    // todo: raise the error!
+    let _ = fs::remove_file(path);
 }
 
 fn rebase_empty_segment<'repo>(
