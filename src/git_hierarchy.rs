@@ -115,8 +115,6 @@ pub struct Segment<'repo> {
     pub start: Reference<'repo>,
 }
 
-const REBASED_REFLOG: &str = "Rebased";
-
 impl<'repo> Segment<'repo> {
     /// Checks if a branch/segment/sum name is valid for git and safe for CLI usage.
     ///
@@ -232,8 +230,7 @@ impl<'repo> Segment<'repo> {
 
     // reference to head_oid
     // start to base.
-    // todo: reflog message?
-    pub fn reset(&self, repository: &'repo Repository, head_oid: Oid) -> Result<(), Error> {
+    pub fn reset(&self, repository: &'repo Repository, head_oid: Oid, reflog_message: &str) -> Result<(), Error> {
 
         if true {
             let head_reference = self.reference.borrow();
@@ -245,7 +242,7 @@ impl<'repo> Segment<'repo> {
         }
 
         let mut ref_borrow = self.reference.borrow_mut();
-        let updated_ref = ref_borrow.set_target(head_oid, "rebased")?;
+        let updated_ref = ref_borrow.set_target(head_oid, reflog_message)?;
         *ref_borrow = updated_ref;
         drop(ref_borrow);
 
@@ -253,15 +250,15 @@ impl<'repo> Segment<'repo> {
         debug!("base to {:?}", base.target());
         // _peel fails!
         let oid = base.target().ok_or_else(|| Error::from_str("base reference target missing"))?;
-        self.set_start(repository, oid)
+        self.set_start(repository, oid, reflog_message)
     }
 
-    pub fn set_start(&self, repository: &'repo Repository, oid: Oid) -> Result<(), Error> {
+    pub fn set_start(&self, repository: &'repo Repository, oid: Oid, reflog_message: &str) -> Result<(), Error> {
         let start_ref_name = self.start.name().ok_or_else(|| Error::from_str("start reference must have a name"))?;
         let mut start_ref = repository.find_reference(start_ref_name)?;
 
         info!("setting {} to {}", start_ref_name, oid);
-        start_ref.set_target(oid, REBASED_REFLOG)?;
+        start_ref.set_target(oid, reflog_message)?;
         Ok(())
     }
 
@@ -911,12 +908,17 @@ mod tests {
         .unwrap();
 
         // set_start should return Ok(()) and update start reference target
-        assert!(segment.set_start(repo, commit2.id()).is_ok());
+        assert!(segment.set_start(repo, commit2.id(), "rebased").is_ok());
         assert_eq!(repo.find_reference("refs/start/feature").unwrap().target().unwrap(), commit2.id());
 
         // reset should return Ok(()) and update head reference and start reference
-        assert!(segment.reset(repo, commit3.id()).is_ok());
+        assert!(segment.reset(repo, commit3.id(), "custom_reflog_msg").is_ok());
         assert_eq!(segment.reference.borrow().target().unwrap(), commit3.id());
         assert_eq!(repo.find_reference("refs/start/feature").unwrap().target().unwrap(), commit1.id());
+
+        // verify reflog message was used
+        let head_reflog = repo.reflog("refs/heads/feature").unwrap();
+        let latest_entry = head_reflog.get(0).unwrap();
+        assert_eq!(latest_entry.message(), Some("custom_reflog_msg"));
     }
 }

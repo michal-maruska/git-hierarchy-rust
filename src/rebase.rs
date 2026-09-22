@@ -278,7 +278,7 @@ pub fn rebase_segment<'repo>(repository: &'repo Repository, segment: &Segment<'r
                                          segment.base(repository).peel_to_commit()?
                                          )?;
         // move
-        segment.reset(repository, commit.id())?;
+        segment.reset(repository, commit.id(), "rebased")?;
     }
 
     cleanup_segment_rebase(repository, segment);
@@ -347,7 +347,7 @@ fn continue_segment_cherry_pick<'repo>(repository: &'repo Repository,
                                      peek.skip(skip),
                                      parent)?;
     // might need this if nothing to cherrypick anymore.
-    segment.reset(repository, commit.id())?;
+    segment.reset(repository, commit.id(), "rebased")?;
     Ok(())
 }
 
@@ -452,7 +452,7 @@ pub fn rebase_segment_continue(repository: &Repository) -> Result<RebaseResult, 
         continue_segment_cherry_pick(repository, &segment, commit_id, skip)?;
 
         let head_commit = repository.head()?.peel_to_commit()?;
-        segment.reset(repository, head_commit.id())?;
+        segment.reset(repository, head_commit.id(), "rebased")?;
 
         cleanup_segment_rebase(repository, &segment);
         Ok(RebaseResult::Done)
@@ -476,7 +476,8 @@ fn rebase_empty_segment<'repo>(
     debug!("rebase empty segment: {}", segment.name());
 
     segment.reset(repository,
-                  segment.base(repository).peel_to_commit()?.id())?;
+                  segment.base(repository).peel_to_commit()?.id(),
+                  "rebased")?;
     Ok(RebaseResult::Done)
 }
 
