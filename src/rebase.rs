@@ -494,7 +494,7 @@ pub fn check_segment(repository: &Repository, segment: &Segment<'_>) -> Result<(
 
     // git_revisions()
     // walk.push_ref(segment.reference.borrow());
-    // walk.hide(segment._start.target().unwrap());
+    // walk.hide(segment.start.target().unwrap());
     // walk.hide_ref(ref);
 
     // push_range
