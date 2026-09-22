@@ -355,3 +355,92 @@ fn test_cli_rebase_continuation_after_conflict() {
     let content2 = std::fs::read_to_string(&file2_path).unwrap();
     assert_eq!(content2, "file 2 content\n");
 }
+
+#[test]
+fn test_cli_rebase_cherrypick_failed_uncommitted_changes_continuation() {
+    let temp_repo = TestRepo::new();
+
+    // 1. Base commit on main with file1.txt
+    let file1_path = temp_repo.path.join("file1.txt");
+    std::fs::write(&file1_path, "base content\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file1.txt")).unwrap();
+    index.write().unwrap();
+    let base_commit = temp_repo.create_commit("initial commit", &[]);
+    temp_repo.repo.branch("main", &base_commit, true).unwrap();
+    temp_repo.repo.set_head("refs/heads/main").unwrap();
+
+    // 2. Define and checkout segment 'feature' with base 'main' using 'create'
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("create")
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-segment create");
+    assert!(output.status.success(), "git-segment create failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // 3. Create feature segment commit on feature branch:
+    let file2_path = temp_repo.path.join("file2.txt");
+    std::fs::write(&file2_path, "feature file2 content\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file2.txt")).unwrap();
+    index.write().unwrap();
+    let feature_commit = temp_repo.create_commit("feature change", &[&base_commit]);
+    temp_repo.repo.reference("refs/heads/feature", feature_commit.id(), true, "update feature").unwrap();
+
+    // 4. Update main branch with another commit
+    temp_repo.repo.set_head("refs/heads/main").unwrap();
+    temp_repo.repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+
+    let file3_path = temp_repo.path.join("file3.txt");
+    std::fs::write(&file3_path, "main file3 content\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file3.txt")).unwrap();
+    index.write().unwrap();
+    let main_commit = temp_repo.create_commit("main change", &[&base_commit]);
+    temp_repo.repo.reference("refs/heads/main", main_commit.id(), true, "update main").unwrap();
+
+    // 5. Create uncommitted change on file2.txt in worktree so cherry-pick will fail
+    std::fs::write(&file2_path, "uncommitted worktree content\n").unwrap();
+
+    // 6. Run git-rebase-poset on feature -> expect failure because uncommitted file2.txt would be overwritten
+    let output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("-f")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset");
+
+    assert!(!output.status.success(), "git-rebase-poset should fail due to uncommitted change");
+
+    // Check marker file contents
+    let marker_path = temp_repo.repo.commondir().join(".segment-cherry-pick");
+    let marker_content = std::fs::read_to_string(&marker_path).unwrap();
+    assert_eq!(marker_content, format!("feature\n0\n{}\n", feature_commit.id()));
+
+    // 7. Clean uncommitted change in worktree
+    std::fs::remove_file(&file2_path).unwrap();
+
+    // 8. Run git-rebase-poset --continue
+    let cont_output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("-f")
+        .arg("-c")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset --continue");
+
+    assert!(cont_output.status.success(), "git-rebase-poset --continue failed: {}\nStdout: {}", String::from_utf8_lossy(&cont_output.stderr), String::from_utf8_lossy(&cont_output.stdout));
+
+    // 9. Verify feature branch contains file2.txt with "feature file2 content\n"
+    temp_repo.repo.set_head("refs/heads/feature").unwrap();
+    temp_repo.repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+
+    assert!(file2_path.exists(), "file2.txt should exist on feature branch after rebase continue!");
+    let content = std::fs::read_to_string(&file2_path).unwrap();
+    assert_eq!(content, "feature file2 content\n");
+}
