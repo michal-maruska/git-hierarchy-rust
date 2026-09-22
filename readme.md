@@ -27,5 +27,5 @@ OnceCell
 *
 Cannot pass Reference:
 
-move occurs because `segment._start` has type `git2::Reference<'_>`, which does not implement the `Copy` trait
-cannot move out of `segment._start` which is behind a shared reference
+move occurs because `segment.start` has type `git2::Reference<'_>`, which does not implement the `Copy` trait
+cannot move out of `segment.start` which is behind a shared reference

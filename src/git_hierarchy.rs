@@ -112,7 +112,7 @@ pub struct Segment<'repo> {
     pub reference: RefCell<Reference<'repo>>,
 
     pub base: RefCell<Reference<'repo>>, // I need to call &mut methods
-    pub _start: Reference<'repo>,
+    pub start: Reference<'repo>,
 }
 
 impl<'repo> Segment<'repo> {
@@ -200,7 +200,7 @@ impl<'repo> Segment<'repo> {
             name: branch_name(&reference).to_owned(),
             reference: RefCell::new(reference),
             base: RefCell::new(base),
-            _start: start,
+            start,
         }
     }
 
@@ -210,20 +210,20 @@ impl<'repo> Segment<'repo> {
 
     pub fn uptodate(&self, _repository: &Repository) -> bool {
         debug!("looking at segment: {:?} {:?} {:?}", self.name,
-               self._start.target().unwrap(),
+               self.start.target().unwrap(),
                self.base.borrow().peel_to_commit().unwrap().id());
         self.base
-            .borrow().peel_to_commit().unwrap().id() == self._start.target().unwrap()
+            .borrow().peel_to_commit().unwrap().id() == self.start.target().unwrap()
     }
 
     pub fn empty(&self, repository: &Repository) -> Result<bool, Error> {
-        git_same_ref(repository, &self.reference.borrow(), &self._start)
+        git_same_ref(repository, &self.reference.borrow(), &self.start)
     }
 
     pub fn git_revisions(&self) -> String {
         format!(
             "{}..{}",
-            self._start.name().unwrap(),
+            self.start.name().unwrap(),
             self.reference.borrow().name().unwrap()
         )
     }
@@ -254,7 +254,7 @@ impl<'repo> Segment<'repo> {
     }
 
     pub fn set_start(&self, repository: &'repo Repository, oid: Oid, reflog_message: &str) -> Result<(), Error> {
-        let start_ref_name = self._start.name().ok_or_else(|| Error::from_str("start reference must have a name"))?;
+        let start_ref_name = self.start.name().ok_or_else(|| Error::from_str("start reference must have a name"))?;
         let mut start_ref = repository.find_reference(start_ref_name)?;
 
         info!("setting {} to {}", start_ref_name, oid);
@@ -263,7 +263,7 @@ impl<'repo> Segment<'repo> {
     }
 
     pub fn start(&self) -> Oid {
-        self._start.target().expect("start reference should resolve to Oid")
+        self.start.target().expect("start reference should resolve to Oid")
     }
 
     pub fn base(&self, repository: &'repo Repository) -> Reference<'repo> {
@@ -287,7 +287,7 @@ impl<'repo> Segment<'repo> {
         let oid = self.reference.borrow().target().unwrap();
         walk.push(oid)?;
         //_peel
-        let oid = self._start.target().unwrap();
+        let oid = self.start.target().unwrap();
         walk.hide(oid)?;
 
         Ok(walk)
