@@ -148,7 +148,6 @@ fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Seg
 }
 
 fn delete(repository: &Repository, args: &DeleteCmd) -> Result<()> {
-    Segment::check_name_is_valid(&args.segment_name)?;
     let gh = load(repository, &args.segment_name)?;
     if let GitHierarchy::Segment(mut segment) = gh {
         println!("Delete {} in {:?}", args.segment_name, repository.path());
@@ -246,7 +245,6 @@ fn main() -> Result<()> {
                 list_segments(&repository)?;
             }
             Commands::Restart(args) => {
-                Segment::check_name_is_valid(&args.segment_name)?;
                 let gh = load(&repository, &args.segment_name)?;
                 if let GitHierarchy::Segment(segment) = gh {
                     let commit = resolve_user_commit(&repository, args.commit.as_ref())
