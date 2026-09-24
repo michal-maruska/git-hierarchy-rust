@@ -260,6 +260,71 @@ fn test_cli_segment_update_rejects_invalid_base_name() {
 }
 
 #[test]
+fn test_cli_segment_restart_and_delete_reject_invalid_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let restart_out = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("restart")
+        .arg("--")
+        .arg("-invalid-seg")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-segment restart");
+
+    assert!(!restart_out.status.success());
+    let stderr = String::from_utf8_lossy(&restart_out.stderr);
+    assert!(stderr.contains("invalid reference name"), "Stderr was: {}", stderr);
+
+    let delete_out = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("delete")
+        .arg("--")
+        .arg("-invalid-seg")
+        .output()
+        .expect("failed to execute git-segment delete");
+
+    assert!(!delete_out.status.success());
+    let stderr = String::from_utf8_lossy(&delete_out.stderr);
+    assert!(stderr.contains("invalid reference name"), "Stderr was: {}", stderr);
+}
+
+#[test]
+fn test_cli_sum_delete_and_show_reject_invalid_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let show_out = Command::new(env!("CARGO_BIN_EXE_git-sum"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("show")
+        .arg("--")
+        .arg("-invalid-sum")
+        .output()
+        .expect("failed to execute git-sum show");
+
+    assert!(!show_out.status.success());
+    let stderr = String::from_utf8_lossy(&show_out.stderr);
+    assert!(stderr.contains("invalid reference name"), "Stderr was: {}", stderr);
+
+    let delete_out = Command::new(env!("CARGO_BIN_EXE_git-sum"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("delete")
+        .arg("--")
+        .arg("-invalid-sum")
+        .output()
+        .expect("failed to execute git-sum delete");
+
+    assert!(!delete_out.status.success());
+    let stderr = String::from_utf8_lossy(&delete_out.stderr);
+    assert!(stderr.contains("invalid reference name"), "Stderr was: {}", stderr);
+}
+
+#[test]
 fn test_cli_rebase_continuation_after_conflict() {
     let temp_repo = TestRepo::new();
 
