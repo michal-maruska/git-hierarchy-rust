@@ -4,7 +4,7 @@ use git2::Repository;
 use colored::Colorize;
 
 use git_hierarchy::cli::{ClapGitRepo, resolve_references_from_user};
-use git_hierarchy::git_hierarchy::{GitHierarchy, Sum, load, sums, sum_fmt};
+use git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load, sums, sum_fmt};
 use git_hierarchy::rebase::check_summands;
 use git_hierarchy::base::resolve_to_commit_maybe;
 
@@ -134,6 +134,7 @@ fn define_sum<'repo, 'a, T: AsRef<str> + 'a>(
 }
 
 fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<()> {
+    Segment::check_name_is_valid(&args.sum_name)?;
     let gh = load(repository, &args.sum_name)?;
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
@@ -209,6 +210,7 @@ fn list_sums(repository: &Repository) -> Result<()> {
 }
 
 fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
+    Segment::check_name_is_valid(&args.name)?;
     let gh = load(repository, &args.name)?;
     if let GitHierarchy::Sum(sum) = gh {
         println!("sum {}", sum_fmt(sum.name()));
