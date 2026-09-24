@@ -224,6 +224,26 @@ fn test_cli_walk_down_success() {
 }
 
 #[test]
+fn test_cli_option_injection_protection() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    // Verify git-segment rejects hyphenated option injection in segment or base name
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--")
+        .arg("-option-injection")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-segment");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid reference name"), "Stderr was: {}", stderr);
+}
+
+#[test]
 fn test_cli_walk_down_rejects_invalid_name() {
     let temp_repo = TestRepo::new();
     temp_repo.create_initial_commit();
