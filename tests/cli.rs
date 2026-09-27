@@ -444,3 +444,32 @@ fn test_cli_rebase_cherrypick_failed_uncommitted_changes_continuation() {
     let content = std::fs::read_to_string(&file2_path).unwrap();
     assert_eq!(content, "feature file2 content\n");
 }
+
+#[test]
+fn test_cli_walk_down_clone_rejects_invalid_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit();
+
+    let seg_output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to define segment");
+    assert!(seg_output.status.success());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--clone")
+        .arg("feature")
+        .arg("/invalid")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-walk-down --clone");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid reference name"), "Stderr was: {}", stderr);
+}
