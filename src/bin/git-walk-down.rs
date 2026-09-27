@@ -221,6 +221,7 @@ fn clone_node<'repo>(
         GitHierarchy::Segment(segment) => {
             let new_name = new_name_fn(segment.name());
             info!("new name is {}", new_name);
+            Segment::check_name_is_valid(&new_name)?;
 
             let mut base = segment.base(repository);
             let base_name = base.name().ok_or_else(|| anyhow!("base reference missing name"))?;
@@ -246,6 +247,7 @@ fn clone_node<'repo>(
         GitHierarchy::Sum(sum) => {
             let new_name = new_name_fn(sum.name());
             info!("new sum name is {}", new_name);
+            Segment::check_name_is_valid(&new_name)?;
 
             let summands = sum.summands(repository);
 
