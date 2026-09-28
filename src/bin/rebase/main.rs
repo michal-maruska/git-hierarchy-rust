@@ -81,6 +81,12 @@ fn remerge_sum<'repo>(
     sum: &Sum<'repo>,
     object_map: &HashMap<String, GitHierarchy<'repo>>, // this lifetime
 ) -> Result<RebaseResult, RebaseError> {
+    if !Segment::name_is_valid(sum.name())? {
+        return Err(RebaseError::WrongHierarchy(format!(
+            "invalid sum name: {}",
+            sum.name()
+        )));
+    }
     let summands = sum.summands(repository);
 
     /* assumption:
@@ -515,6 +521,41 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     use ::git_hierarchy::test_utils::{create_commit, TestRepo};
+
+    #[test]
+    fn test_remerge_sum_rejects_invalid_sum_name() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[]);
+        let merge_commit = create_commit(repo, "merge", &[&commit1, &commit2]);
+
+        let b1 = repo.branch("b1", &commit1, false).unwrap();
+        let b2 = repo.branch("b2", &commit2, false).unwrap();
+
+        let refs = [b1.get(), b2.get()];
+        let sum = Sum::create(repo, "valid-sum", refs.into_iter(), Some(merge_commit.clone())).unwrap();
+
+        let ref_invalid = repo.reference("refs/heads/-invalid-sum", merge_commit.id(), true, "test").unwrap();
+        let sum = Sum::new(ref_invalid, sum.summands);
+
+        let mut object_map = HashMap::new();
+        object_map.insert(
+            "refs/heads/b1".to_string(),
+            GitHierarchy::Reference(b1.into_reference()),
+        );
+        object_map.insert(
+            "refs/heads/b2".to_string(),
+            GitHierarchy::Reference(b2.into_reference()),
+        );
+
+        let res = remerge_sum(repo, &sum, &object_map);
+        assert!(matches!(res, Err(RebaseError::WrongHierarchy(_))));
+        if let Err(RebaseError::WrongHierarchy(msg)) = res {
+            assert!(msg.contains("invalid sum name"));
+        }
+    }
 
     #[test]
     fn test_remerge_sum_rejects_invalid_summand_name() {
