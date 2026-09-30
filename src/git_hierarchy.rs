@@ -118,11 +118,11 @@ pub struct Segment<'repo> {
 impl<'repo> Segment<'repo> {
     /// Checks if a branch/segment/sum name is valid for git and safe for CLI usage.
     ///
-    /// Rejects names starting with '-' because leading dashes could be interpreted
-    /// as command-line flags/options when passed to external git commands,
-    /// leading to CLI option injection vulnerabilities.
+    /// Rejects names containing any path component starting with '-' because leading
+    /// dashes could be interpreted as command-line flags/options when passed to
+    /// external git commands, leading to CLI option injection vulnerabilities.
     pub fn name_is_valid(name: &str) -> Result<bool, Error> {
-        if name.starts_with('-') {
+        if name.split('/').any(|s| s.starts_with('-')) {
             return Ok(false);
         }
         git2::Branch::name_is_valid(name)
@@ -849,6 +849,12 @@ mod tests {
 
         let err_sum2 = Sum::create(repo, "-option_sum", refs.into_iter(), Some(commit));
         assert!(err_sum2.is_err());
+
+        assert!(!Segment::name_is_valid("refs/heads/-option").unwrap());
+        assert!(!Segment::name_is_valid("feature/-option").unwrap());
+        assert!(!Segment::name_is_valid("-option").unwrap());
+        assert!(Segment::name_is_valid("feature/normal").unwrap());
+        assert!(Segment::name_is_valid("refs/heads/main").unwrap());
     }
 
     #[test]
