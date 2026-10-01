@@ -136,14 +136,14 @@ impl<'repo> Segment<'repo> {
     }
 
     pub fn create(repository: &'repo Repository,
-                  name: &str,
-                  // why the same?
-                  base: &'_ Reference<'_>,
-                  start: Oid,
-                  head: Oid)
-                  -> Result<Segment<'repo>, Error> {
-        if !Segment::name_is_valid(name)? {
-            return Err(Error::from_str("invalid segment name: must be a valid git branch name"));
+        name: &str,
+        // why the same?
+        base: &'_ Reference<'_>,
+        start: Oid,
+        head: Oid) -> Result<Segment<'repo>, Error> {
+
+            if !Segment::name_is_valid(name)? {
+                return Err(Error::from_str("invalid segment name: must be a valid git branch name"));
         }
 
         info!("create segment: {}", name);
