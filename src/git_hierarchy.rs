@@ -145,7 +145,6 @@ impl<'repo> Segment<'repo> {
         if !Segment::name_is_valid(name)? {
             return Err(Error::from_str("invalid segment name: must be a valid git branch name"));
         }
-        let base_name = base.name().ok_or_else(|| Error::from_str("base reference must have a name"))?;
         info!("create segment: {} base {}", name, base_name);
 
         let mut s = repository.reference(
@@ -155,6 +154,7 @@ impl<'repo> Segment<'repo> {
             "start",
         )?;
 
+        let base_name = base.name().ok_or_else(|| Error::from_str("base reference must have a name"))?;
         let mut b = match repository.reference_symbolic(
             &concatenate(SEGMENT_BASE_PATTERN, name),
             base_name,
