@@ -168,10 +168,11 @@ impl<'repo> Segment<'repo> {
             }
         };
 
+        let full_name = concatenate("refs/heads/", name);
         let branch = match repository.reference(
-            &concatenate("refs/heads/", name),
+            &full_name,
             head,
-            false,
+            false, // don't overwrite if exists!
             "create",
         ) {
             Ok(br) => br,
@@ -182,6 +183,7 @@ impl<'repo> Segment<'repo> {
                     let _ = b.delete();
                 } else {
                     info!("ignoring");
+                    return Ok(Segment::new(repository.find_reference(&full_name)?, b, s));
                 }
                 return Err(e);
             }
