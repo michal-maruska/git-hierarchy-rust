@@ -81,12 +81,8 @@ fn remerge_sum<'repo>(
     sum: &Sum<'repo>,
     object_map: &HashMap<String, GitHierarchy<'repo>>, // this lifetime
 ) -> Result<RebaseResult, RebaseError> {
-    if !Segment::name_is_valid(sum.name())? {
-        return Err(RebaseError::WrongHierarchy(format!(
-            "invalid sum name: {}",
-            sum.name()
-        )));
-    }
+    Segment::check_name_is_valid(sum.name())
+        .map_err(|e| RebaseError::WrongHierarchy(format!("invalid sum name: {}", e)))?;
     let summands = sum.summands(repository);
 
     /* assumption:
