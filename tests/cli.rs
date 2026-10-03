@@ -64,7 +64,7 @@ fn test_cli_help_git_walk_down() {
 #[test]
 fn test_cli_define_and_list_segment() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     // Run git-segment feature main in temp repo directory
     let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
@@ -92,7 +92,7 @@ fn test_cli_define_and_list_segment() {
 #[test]
 fn test_cli_define_and_list_sum() {
     let temp_repo = TestRepo::new();
-    let commit = temp_repo.create_initial_commit();
+    let commit = temp_repo.create_initial_commit_on_main();
 
     // Create a branch b1 to use as summand
     temp_repo.repo.branch("b1", &commit, false).unwrap();
@@ -123,7 +123,7 @@ fn test_cli_define_and_list_sum() {
 #[test]
 fn test_cli_rebase_poset_corrupt_marker_file() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     // Create a corrupt marker file in commondir
     let marker_path = temp_repo.repo.commondir().join(".segment-cherry-pick");
@@ -143,7 +143,7 @@ fn test_cli_rebase_poset_corrupt_marker_file() {
 #[test]
 fn test_cli_sum_rejects_invalid_summand_name() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let output = Command::new(env!("CARGO_BIN_EXE_git-sum"))
         .arg("-g")
@@ -163,7 +163,7 @@ fn test_cli_sum_rejects_invalid_summand_name() {
 #[test]
 fn test_cli_git_segment_nonexistent() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
         .arg("-g")
@@ -182,7 +182,7 @@ fn test_cli_git_segment_nonexistent() {
 #[test]
 fn test_cli_segment_rejects_invalid_name() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
         .arg("-g")
@@ -200,7 +200,7 @@ fn test_cli_segment_rejects_invalid_name() {
 #[test]
 fn test_cli_walk_down_success() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let seg_output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
         .arg("-g")
@@ -226,7 +226,7 @@ fn test_cli_walk_down_success() {
 #[test]
 fn test_cli_walk_down_rejects_invalid_name() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let output = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
         .arg("-g")
@@ -242,7 +242,7 @@ fn test_cli_walk_down_rejects_invalid_name() {
 #[test]
 fn test_cli_segment_update_rejects_invalid_base_name() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
         .arg("-g")
@@ -262,7 +262,7 @@ fn test_cli_segment_update_rejects_invalid_base_name() {
 #[test]
 fn test_cli_segment_restart_and_delete_reject_invalid_name() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let restart_out = Command::new(env!("CARGO_BIN_EXE_git-segment"))
         .arg("-g")
@@ -295,7 +295,7 @@ fn test_cli_segment_restart_and_delete_reject_invalid_name() {
 #[test]
 fn test_cli_sum_delete_and_show_reject_invalid_name() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let show_out = Command::new(env!("CARGO_BIN_EXE_git-sum"))
         .arg("-g")
@@ -513,7 +513,7 @@ fn test_cli_rebase_cherrypick_failed_uncommitted_changes_continuation() {
 #[test]
 fn test_cli_walk_down_clone_rejects_invalid_name() {
     let temp_repo = TestRepo::new();
-    temp_repo.create_initial_commit();
+    temp_repo.create_initial_commit_on_main();
 
     let seg_output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
         .arg("-g")
