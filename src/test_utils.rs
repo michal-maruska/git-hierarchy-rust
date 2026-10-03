@@ -45,10 +45,14 @@ impl TestRepo {
 
     pub fn generate_sample_segment<'repo>(
         &'repo self,
-        base: &Commit<'repo>,
+        base_branch_name: &str,
         name: &str,
         file: &str,
     ) -> crate::git_hierarchy::Segment<'repo> {
+        let base_ref = self.repo.resolve_reference_from_short_name(base_branch_name).unwrap();
+        let base_commit = base_ref.peel_to_commit().unwrap();
+        let start_oid = base_commit.id();
+
         let file_path = self.path.join(file);
         fs::write(&file_path, format!("content for {}", name)).unwrap();
         let mut index = self.repo.index().unwrap();
@@ -58,15 +62,14 @@ impl TestRepo {
         let sig = self.repo.signature().unwrap();
         let head_oid = self
             .repo
-            .commit(None, &sig, &sig, &format!("commit for {}", name), &tree, &[base])
+            .commit(None, &sig, &sig, &format!("commit for {}", name), &tree, &[&base_commit])
             .unwrap();
 
-        let base_branch = self.repo.branch(&format!("{}_base", name), base, false).unwrap();
         crate::git_hierarchy::Segment::create(
             &self.repo,
             name,
-            base_branch.get(),
-            base.id(),
+            &base_ref,
+            start_oid,
             head_oid,
         )
         .unwrap()
@@ -74,17 +77,15 @@ impl TestRepo {
 
     pub fn create_sample_sum<'repo>(
         &'repo self,
-        base: &Commit<'repo>,
         name: &str,
+        summand_branches: &[&str],
     ) -> crate::git_hierarchy::Sum<'repo> {
-        let _seg1 = self.generate_sample_segment(base, &format!("{}_s1", name), &format!("{}_f1.txt", name));
-        let _seg2 = self.generate_sample_segment(base, &format!("{}_s2", name), &format!("{}_f2.txt", name));
+        let refs: Vec<_> = summand_branches
+            .iter()
+            .map(|b| self.repo.resolve_reference_from_short_name(b).unwrap())
+            .collect();
 
-        let ref1 = self.repo.find_reference(&format!("refs/heads/{}_s1", name)).unwrap();
-        let ref2 = self.repo.find_reference(&format!("refs/heads/{}_s2", name)).unwrap();
-
-        let summands = vec![ref1, ref2];
-        crate::git_hierarchy::Sum::create(&self.repo, name, summands.iter(), Some(base.clone())).unwrap()
+        crate::git_hierarchy::Sum::create(&self.repo, name, refs.iter(), None).unwrap()
     }
 }
 
