@@ -42,6 +42,50 @@ impl TestRepo {
         let _ = self.repo.branch("main", &commit, false);
         commit
     }
+
+    pub fn create_segment<'repo>(
+        &'repo self,
+        base: &Commit<'repo>,
+        name: &str,
+        file: &str,
+    ) -> crate::git_hierarchy::Segment<'repo> {
+        let file_path = self.path.join(file);
+        fs::write(&file_path, format!("content for {}", name)).unwrap();
+        let mut index = self.repo.index().unwrap();
+        index.add_path(std::path::Path::new(file)).unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = self.repo.find_tree(tree_id).unwrap();
+        let sig = self.repo.signature().unwrap();
+        let head_oid = self
+            .repo
+            .commit(None, &sig, &sig, &format!("commit for {}", name), &tree, &[base])
+            .unwrap();
+
+        let base_branch = self.repo.branch(&format!("{}_base", name), base, false).unwrap();
+        crate::git_hierarchy::Segment::create(
+            &self.repo,
+            name,
+            base_branch.get(),
+            base.id(),
+            head_oid,
+        )
+        .unwrap()
+    }
+
+    pub fn create_sample_sum<'repo>(
+        &'repo self,
+        base: &Commit<'repo>,
+        name: &str,
+    ) -> crate::git_hierarchy::Sum<'repo> {
+        let _seg1 = self.create_segment(base, &format!("{}_s1", name), &format!("{}_f1.txt", name));
+        let _seg2 = self.create_segment(base, &format!("{}_s2", name), &format!("{}_f2.txt", name));
+
+        let ref1 = self.repo.find_reference(&format!("refs/heads/{}_s1", name)).unwrap();
+        let ref2 = self.repo.find_reference(&format!("refs/heads/{}_s2", name)).unwrap();
+
+        let summands = vec![ref1, ref2];
+        crate::git_hierarchy::Sum::create(&self.repo, name, summands.iter(), Some(base.clone())).unwrap()
+    }
 }
 
 impl Default for TestRepo {
