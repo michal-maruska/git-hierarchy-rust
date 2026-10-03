@@ -4,10 +4,13 @@ pub use std::process::{Command, ExitStatus};
 #[allow(unused)]
 use tracing::{debug, info, warn, error};
 
+use crate::git_hierarchy::Segment;
+
 #[derive(Debug)]
 pub enum Error {
     NoWorkDir,
     ProcessError(std::io::Error),
+    InvalidArgument(String),
 }
 
 impl std::fmt::Display for Error {
@@ -15,6 +18,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::NoWorkDir => write!(f, "Repository has no working directory"),
             Error::ProcessError(e) => write!(f, "Process execution failed: {}", e),
+            Error::InvalidArgument(msg) => write!(f, "Invalid argument: {}", msg),
         }
     }
 }
@@ -30,6 +34,14 @@ impl std::error::Error for Error {
 
 /// Invoke git with the given CLI arguments. In the directory of the @repository.
 pub fn git_run(repository: &Repository, cmd_line: &[&str]) -> Result<ExitStatus, Error> {
+    if let Some(dash_dash_idx) = cmd_line.iter().position(|&arg| arg == "--") {
+        for &arg in &cmd_line[dash_dash_idx + 1..] {
+            if !Segment::name_is_valid(arg).map_err(|e| Error::InvalidArgument(e.to_string()))? {
+                return Err(Error::InvalidArgument(format!("invalid reference name: {}", arg)));
+            }
+        }
+    }
+
     let mut command = Command::new("git");
     command.args(cmd_line);
 
@@ -68,5 +80,12 @@ mod tests {
         assert!(matches!(result, Err(Error::NoWorkDir)));
 
         let _ = fs::remove_dir_all(&path);
+    }
+
+    #[test]
+    fn test_git_run_rejects_invalid_ref_after_dash_dash() {
+        let test_repo = TestRepo::new();
+        let result = git_run(&test_repo.repo, &["checkout", "--", "-invalid-branch"]);
+        assert!(matches!(result, Err(Error::InvalidArgument(_))));
     }
 }
