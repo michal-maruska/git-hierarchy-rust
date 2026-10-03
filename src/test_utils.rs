@@ -43,7 +43,7 @@ impl TestRepo {
         commit
     }
 
-    pub fn create_segment<'repo>(
+    pub fn generate_sample_segment<'repo>(
         &'repo self,
         base: &Commit<'repo>,
         name: &str,
@@ -77,8 +77,8 @@ impl TestRepo {
         base: &Commit<'repo>,
         name: &str,
     ) -> crate::git_hierarchy::Sum<'repo> {
-        let _seg1 = self.create_segment(base, &format!("{}_s1", name), &format!("{}_f1.txt", name));
-        let _seg2 = self.create_segment(base, &format!("{}_s2", name), &format!("{}_f2.txt", name));
+        let _seg1 = self.generate_sample_segment(base, &format!("{}_s1", name), &format!("{}_f1.txt", name));
+        let _seg2 = self.generate_sample_segment(base, &format!("{}_s2", name), &format!("{}_f2.txt", name));
 
         let ref1 = self.repo.find_reference(&format!("refs/heads/{}_s1", name)).unwrap();
         let ref2 = self.repo.find_reference(&format!("refs/heads/{}_s2", name)).unwrap();
