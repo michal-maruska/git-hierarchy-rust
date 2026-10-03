@@ -37,7 +37,7 @@ impl TestRepo {
         create_commit(&self.repo, message, parents)
     }
 
-    pub fn create_initial_commit<'repo>(&'repo self) -> Commit<'repo> {
+    pub fn create_initial_commit_on_main<'repo>(&'repo self) -> Commit<'repo> {
         let commit = self.create_commit("initial commit", &[]);
         let _ = self.repo.branch("main", &commit, false);
         commit
