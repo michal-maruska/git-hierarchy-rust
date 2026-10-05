@@ -156,8 +156,6 @@ fn remerge_sum<'repo>(
                 "--rerere-autoupdate",
                 "--strategy",
                 "octopus",
-                "--strategy",
-                "recursive",
                 "--strategy-option",
                 "patience",
                 "--strategy-option",
