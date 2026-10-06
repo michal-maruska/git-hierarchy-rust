@@ -105,6 +105,9 @@ fn main() -> Result<()> {
     }
 
     let mut gitk_args = vec!["--".to_string()];
+    for arg in tops.iter().chain(bases.iter()) {
+        Segment::check_name_is_valid(arg)?;
+    }
     gitk_args.extend(tops);
     gitk_args.extend(bases);
 
