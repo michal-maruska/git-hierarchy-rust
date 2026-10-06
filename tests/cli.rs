@@ -511,6 +511,25 @@ fn test_cli_rebase_cherrypick_failed_uncommitted_changes_continuation() {
 }
 
 #[test]
+fn test_cli_gitk_poset_rejects_invalid_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit_on_main();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_gitk-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("-n")
+        .arg("--")
+        .arg("-invalid-root")
+        .output()
+        .expect("failed to execute gitk-poset");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid reference name"), "Stderr was: {}", stderr);
+}
+
+#[test]
 fn test_cli_walk_down_clone_rejects_invalid_name() {
     let temp_repo = TestRepo::new();
     temp_repo.create_initial_commit_on_main();
