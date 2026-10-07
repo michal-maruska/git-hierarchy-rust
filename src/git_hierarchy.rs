@@ -122,7 +122,7 @@ impl<'repo> Segment<'repo> {
     /// as command-line flags/options when passed to external git commands,
     /// leading to CLI option injection vulnerabilities.
     pub fn name_is_valid(name: &str) -> Result<bool, Error> {
-        if name.starts_with('-') {
+        if name.split('/').any(|s| s.starts_with('-')) {
             return Ok(false);
         }
         git2::Branch::name_is_valid(name)
@@ -850,6 +850,7 @@ mod tests {
         assert!(err_seg3.is_err());
 
         assert!(!Segment::name_is_valid("-option").unwrap());
+        assert!(!Segment::name_is_valid("branch/-option").unwrap());
         assert!(Segment::name_is_valid("valid/branch-name").unwrap());
 
         let refs = [base_branch.get()];
