@@ -104,7 +104,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let mut gitk_args = vec!["--".to_string()];
+    let mut gitk_args = vec![]; // "--".to_string()
     gitk_args.extend(tops);
     gitk_args.extend(bases);
 
