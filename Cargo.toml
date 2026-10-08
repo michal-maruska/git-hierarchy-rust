@@ -38,6 +38,14 @@ path = "src/bin/git-segment.rs"
 name = "git-sum"
 path = "src/bin/git-sum.rs"
 
+[[bin]]
+name = "git-store-hierarchy"
+path = "src/bin/git-store-hierarchy.rs"
+
+[[bin]]
+name = "git-restore-hierarchy"
+path = "src/bin/git-restore-hierarchy.rs"
+
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }
 # path = "/home/michal/git/clap/",

@@ -538,3 +538,39 @@ fn test_cli_walk_down_clone_rejects_invalid_name() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("invalid reference name"), "Stderr was: {}", stderr);
 }
+
+#[test]
+fn test_cli_git_store_and_restore_hierarchy() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit_on_main();
+
+    // Define segment 'feature' with base 'main'
+    let seg_output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to define segment");
+    assert!(seg_output.status.success());
+
+    // Store hierarchy to _history branch
+    let store_output = Command::new(env!("CARGO_BIN_EXE_git-store-hierarchy"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .output()
+        .expect("failed to execute git-store-hierarchy");
+    assert!(store_output.status.success(), "Stderr: {}", String::from_utf8_lossy(&store_output.stderr));
+
+    // Restore hierarchy in dry-run mode
+    let restore_dry_output = Command::new(env!("CARGO_BIN_EXE_git-restore-hierarchy"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--dry-run")
+        .output()
+        .expect("failed to execute git-restore-hierarchy");
+    assert!(restore_dry_output.status.success(), "Stderr: {}", String::from_utf8_lossy(&restore_dry_output.stderr));
+    let stdout = String::from_utf8_lossy(&restore_dry_output.stdout);
+    assert!(stdout.contains("feature"));
+    assert!(stdout.contains("Dry run mode"));
+}

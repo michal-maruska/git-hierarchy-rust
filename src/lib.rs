@@ -12,5 +12,6 @@ pub mod utils;
 
 pub mod cli;
 pub mod collected;
+pub mod hierarchy_store;
 pub mod rebase;
 pub mod test_utils;
