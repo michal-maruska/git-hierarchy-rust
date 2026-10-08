@@ -73,37 +73,18 @@ where
     message
 }
 
-/// Given @sum, check if it's up-to-date.
-///
-/// If not: create a new git merge commit.
-fn remerge_sum<'repo>(
+fn is_sum_uptodate<'repo>(
     repository: &'repo Repository,
     sum: &Sum<'repo>,
-    object_map: &HashMap<String, GitHierarchy<'repo>>, // this lifetime
-) -> Result<RebaseResult, RebaseError> {
+    object_map: &HashMap<String, GitHierarchy<'repo>>,
+) -> Result<bool, RebaseError> {
     let summands = sum.summands(repository);
-
-    /* assumption:
-    sum has its summands   base/1 ... base/N
-    these might resolve to References. -- how is that different from Branch?
-
-    During the rebasing we change ... Branches (References), and update them in the `object_map'
-    so we .... prefer to look up there.
-     */
-
-    // find the representation which we already have and keep updating.
     let graphed_summands: Vec<&GitHierarchy<'_>> = summands
         .iter()
-        .map(
-            |s| {
-                let gh = object_map.get(s.name().unwrap()).unwrap();
-                debug!(
-                    "resolve {:?} to {:?}",
-                    s.name().unwrap(),
-                    gh.node_identity()
-                );
-                gh
-            })
+        .map(|s| {
+            let gh = object_map.get(s.name().unwrap()).unwrap();
+            gh
+        })
         .collect();
 
     for s in &graphed_summands {
@@ -116,27 +97,36 @@ fn remerge_sum<'repo>(
     }
 
     let parent_commits = sum.parent_commits();
+    let (orhan_summands, extra_parents) = iterator_symmetric_difference(
+        graphed_summands.iter().map(|gh| gh.commit().unwrap().id()),
+        parent_commits,
+    );
 
-    debug!("The current parent commits are: {:?}", parent_commits);
-    for c in sum.parent_commits() {
-        debug!("  {}", c);
+    Ok(orhan_summands.is_empty() && extra_parents.is_empty())
+}
+
+/// Given @sum, check if it's up-to-date.
+///
+/// If not: create a new git merge commit.
+fn remerge_sum<'repo>(
+    repository: &'repo Repository,
+    sum: &Sum<'repo>,
+    object_map: &HashMap<String, GitHierarchy<'repo>>, // this lifetime
+) -> Result<RebaseResult, RebaseError> {
+    if is_sum_uptodate(repository, sum, object_map)? {
+        info!("sum is up2date: summands & parent commits align");
+        return Ok(RebaseResult::Nothing);
     }
 
-    let (orhan_summands, extra_parents) = iterator_symmetric_difference(
-        graphed_summands.iter().map(|gh| {
-            debug!("{:?} is commit {:?}", gh.node_identity(),
-                   gh.commit().unwrap().id());
-            gh.commit().unwrap().id()
-        }),
-        parent_commits);
+    let summands = sum.summands(repository);
+    let graphed_summands: Vec<&GitHierarchy<'_>> = summands
+        .iter()
+        .map(|s| object_map.get(s.name().unwrap()).unwrap())
+        .collect();
 
+    info!("so the sum is not up-to-date!");
 
-    if orhan_summands.is_empty() && extra_parents.is_empty() {
-        info!("sum is up2date: summands & parent commits align");
-    } else {
-        info!("so the sum is not up-to-date!");
-
-        let first = graphed_summands.first().unwrap();
+    let first = graphed_summands.first().unwrap();
 
         let message = get_merge_commit_message(
             sum.name(),
@@ -249,7 +239,6 @@ fn remerge_sum<'repo>(
             // this both on the Repo/storer both here in our Data ?
             sum.reset(new_oid);
         }
-    }
 
     // do we have a hint -- another merge?
     // git merge
@@ -319,6 +308,7 @@ fn rebase_node<'repo>(
     node: &GitHierarchy<'repo>,
     fetch: bool,
     object_map: &HashMap<String, GitHierarchy<'repo>>,
+    quiet: bool,
 ) -> Result<RebaseResult> {
     match node {
         GitHierarchy::Name(n) => {
@@ -326,19 +316,37 @@ fn rebase_node<'repo>(
         }
         GitHierarchy::Reference(r) => {
             if fetch {
+                let name = r.name().unwrap_or("");
+                if !quiet {
+                    println!("Fetching upstream of '{}'...", name);
+                }
                 fetch_upstream_of(repo, r)
-                    .with_context(|| format!("failed to fetch upstream of '{}'", r.name().unwrap_or("")))?;
+                    .with_context(|| format!("failed to fetch upstream of '{}'", name))?;
             }
             Ok(RebaseResult::Done)
         }
         GitHierarchy::Segment(segment) => {
             let my_span = span!(Level::INFO, "segment", name = segment.name());
             let _enter = my_span.enter();
+            if !quiet {
+                if segment.uptodate(repo) {
+                    println!("Segment '{}' is up-to-date", segment.name());
+                } else {
+                    println!("Rebasing segment '{}'...", segment.name());
+                }
+            }
             rebase_segment(repo, segment)
                 .with_context(|| format!("failed to rebase segment '{}'", segment.name()))
         }
         GitHierarchy::Sum(sum) => {
             let _my_span = span!(Level::INFO, "sum", name = sum.name());
+            if !quiet {
+                if is_sum_uptodate(repo, sum, object_map).unwrap_or(false) {
+                    println!("Sum '{}' is up-to-date", sum.name());
+                } else {
+                    println!("Remerging sum '{}'...", sum.name());
+                }
+            }
             remerge_sum(repo, sum, object_map)
                 .with_context(|| format!("failed to remerge sum '{}'", sum.name()))
         }
@@ -378,6 +386,7 @@ fn rebase_tree(
     fetch: bool,
     ignore: &[String],
     skip: &[String],
+    quiet: bool,
 ) -> Result<()> {
     debug!("find the hierarchy from {}", &root);
     tracing::debug_span!("hierarchy");
@@ -415,6 +424,9 @@ fn rebase_tree(
         let name = vertex.node_identity();
 
         if skip.iter().any(|x| x == name) {
+            if !quiet {
+                println!("Skipping: {name}");
+            }
             info!("Skipping: {name}");
             continue;
         }
@@ -427,7 +439,7 @@ fn rebase_tree(
                 .node_weight(*hierarchy_graph.labeled_nodes.get(v).unwrap())
                 .unwrap()
         );
-        rebase_node(repository, vertex, fetch, &hierarchy_graph.labeled_objects)?;
+        rebase_node(repository, vertex, fetch, &hierarchy_graph.labeled_objects, quiet)?;
     }
     debug!("done");
     Ok(())
@@ -445,6 +457,10 @@ struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
 
+    /// Suppress progress output
+    #[arg(short, long)]
+    quiet: bool,
+
     #[arg(short, long = "continue")]
     cont: bool,
     root_reference: Option<String>,
@@ -458,11 +474,20 @@ struct Cli {
 
 fn main() -> Result<()> {
     let mut cli = Cli::parse();
-    init_tracing(cli.verbose);
+    if cli.quiet {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .init();
+    } else {
+        init_tracing(if cli.verbose == 0 { 1 } else { cli.verbose + 1 });
+    }
 
     let repository = cli.git_repository.open()?;
 
     if cli.cont {
+        if !cli.quiet {
+            println!("Continuing segment rebase...");
+        }
         // old: rebase_continue_git1(repository, &segment_name)
         rebase_segment_continue(&repository)
             .context("failed to continue segment rebase")?;
@@ -505,9 +530,12 @@ fn main() -> Result<()> {
         !cli.no_fetch,
         &cli.ignore,
         &cli.skip,
+        cli.quiet,
     ).with_context(|| format!("failed to rebase tree starting at '{}'", root.node_identity()))?;
 
-    eprintln!("{}", Colorize::green("Done"));
+    if !cli.quiet {
+        println!("{}", Colorize::green("Done"));
+    }
     Ok(())
 }
 
