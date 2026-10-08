@@ -851,6 +851,7 @@ mod tests {
 
         assert!(!Segment::name_is_valid("-option").unwrap());
         assert!(!Segment::name_is_valid("branch/-option").unwrap());
+        assert!(!Segment::name_is_valid("refs/heads/-option").unwrap());
         assert!(Segment::name_is_valid("valid/branch-name").unwrap());
 
         let refs = [base_branch.get()];
