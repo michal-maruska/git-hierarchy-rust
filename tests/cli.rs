@@ -631,3 +631,86 @@ fn test_cli_rebase_poset_quiet() {
     assert!(!stdout.contains("Done"), "Stdout was: {}", stdout);
     assert!(stdout.is_empty(), "Stdout was: {}", stdout);
 }
+
+#[test]
+fn test_cli_rebase_poset_dry_run_and_detect_conflicts() {
+    let temp_repo = TestRepo::new();
+
+    // 1. Create base commit on main with file1.txt: "1\n2\n3\n"
+    let file1_path = temp_repo.path.join("file1.txt");
+    std::fs::write(&file1_path, "1\n2\n3\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file1.txt")).unwrap();
+    index.write().unwrap();
+    let base_commit = temp_repo.create_commit("initial commit", &[]);
+    temp_repo.repo.branch("main", &base_commit, true).unwrap();
+
+    // 2. Define segment 'feature' with base 'main'
+    let output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-segment define");
+    assert!(output.status.success());
+
+    // 3. Create feature segment commits on feature branch:
+    temp_repo.repo.set_head("refs/heads/feature").unwrap();
+    temp_repo.repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+
+    std::fs::write(&file1_path, "1\nA\n2\n3\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file1.txt")).unwrap();
+    index.write().unwrap();
+    let change1_commit = temp_repo.create_commit("change 1", &[&base_commit]);
+    temp_repo.repo.reference("refs/heads/feature", change1_commit.id(), true, "update feature").unwrap();
+
+    // 4. Update main to change 2 (file1.txt modified to "1\n2 modified\n3\n")
+    temp_repo.repo.set_head("refs/heads/main").unwrap();
+    temp_repo.repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+
+    std::fs::write(&file1_path, "1\n2 modified\n3\n").unwrap();
+    let mut index = temp_repo.repo.index().unwrap();
+    index.add_path(std::path::Path::new("file1.txt")).unwrap();
+    index.write().unwrap();
+    let change2_commit = temp_repo.create_commit("change 2", &[&base_commit]);
+    temp_repo.repo.reference("refs/heads/main", change2_commit.id(), true, "update main").unwrap();
+
+    // 5. Test --dry
+    let dry_output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--dry")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset --dry");
+
+    assert!(dry_output.status.success(), "Stderr: {}", String::from_utf8_lossy(&dry_output.stderr));
+    let stdout = String::from_utf8_lossy(&dry_output.stdout);
+    assert!(stdout.contains("Dry run steps:"));
+    assert!(stdout.contains("Rebase segment 'feature' onto 'refs/heads/main'"));
+
+    // Verify repository feature branch target remained unchanged!
+    let feature_ref = temp_repo.repo.find_reference("refs/heads/feature").unwrap();
+    assert_eq!(feature_ref.target().unwrap(), change1_commit.id());
+
+    // 6. Test --dry --detect-conflicts
+    let conflict_output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--dry")
+        .arg("--detect-conflicts")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset --dry --detect-conflicts");
+
+    assert!(conflict_output.status.success(), "Stderr: {}", String::from_utf8_lossy(&conflict_output.stderr));
+    let stdout_conflicts = String::from_utf8_lossy(&conflict_output.stdout);
+    assert!(stdout_conflicts.contains("[conflict] Segment 'feature': conflict on commit"));
+    assert!(stdout_conflicts.contains("Dry run completed: conflicts detected."));
+
+    // Verify repository feature branch target still remained unchanged!
+    let feature_ref2 = temp_repo.repo.find_reference("refs/heads/feature").unwrap();
+    assert_eq!(feature_ref2.target().unwrap(), change1_commit.id());
+}

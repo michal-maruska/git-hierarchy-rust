@@ -469,7 +469,269 @@ struct Cli {
     ignore: Vec<String>,
 
     #[arg(short, long = "skip")]
-    skip: Vec<String>
+    skip: Vec<String>,
+
+    #[arg(short = 'n', long = "dry", aliases = ["dry-run"])]
+    dry: bool,
+
+    #[arg(long = "detect-conflicts", aliases = ["conflicts"])]
+    detect_conflicts: bool,
+}
+
+fn rebase_tree_dry(
+    repository: &Repository,
+    root: String,
+    ignore: &[String],
+    skip: &[String],
+    detect_conflicts: bool,
+) -> Result<()> {
+    debug!("find the hierarchy from {}", &root);
+    let hierarchy_graph = find_hierarchy(repository, root);
+
+    // Verify
+    for v in &hierarchy_graph.discovery_order {
+        let vertex = hierarchy_graph
+            .labeled_objects
+            .get(v)
+            .ok_or_else(|| anyhow!("vertex '{}' missing from hierarchy objects", v))?;
+        if ignore.iter().any(|x| x == v) {
+            continue;
+        }
+        check_node(repository, vertex, &hierarchy_graph.labeled_objects)?;
+    }
+
+    println!("Dry run steps:");
+    let mut sim_tips: HashMap<String, Commit<'_>> = HashMap::new();
+    let mut conflicts_found = false;
+
+    for v in &hierarchy_graph.discovery_order {
+        let vertex = hierarchy_graph
+            .labeled_objects
+            .get(v)
+            .ok_or_else(|| anyhow!("vertex '{}' missing from hierarchy objects", v))?;
+        let name = vertex.node_identity();
+
+        if skip.iter().any(|x| x == name) {
+            println!("  [dry-run] Skip: {}", name);
+            continue;
+        }
+
+        match vertex {
+            GitHierarchy::Name(n) => {
+                bail!("invalid Name node variant in rebase_tree_dry: {}", n);
+            }
+            GitHierarchy::Reference(r) => {
+                let ref_name = r.name().unwrap_or(name);
+                println!("  [dry-run] Reference '{}' (no fetch)", ref_name);
+                if let Ok(c) = r.peel_to_commit() {
+                    sim_tips.insert(name.to_owned(), c);
+                }
+            }
+            GitHierarchy::Segment(segment) => {
+                let base_ref_symbolic = segment.base(repository);
+                let base_ref_name = base_ref_symbolic.name().unwrap_or("");
+
+                let base_commit = if let Some(c) = sim_tips.get(base_ref_name) {
+                    c.clone()
+                } else {
+                    base_ref_symbolic.peel_to_commit()?
+                };
+
+                let base_changed = sim_tips.contains_key(base_ref_name);
+
+                if !base_changed && segment.uptodate(repository) {
+                    println!("  [dry-run] Segment '{}' is up to date", segment.name());
+                    if let Ok(c) = segment.reference.borrow().peel_to_commit() {
+                        sim_tips.insert(name.to_owned(), c);
+                    }
+                } else if segment.empty(repository)? {
+                    println!(
+                        "  [dry-run] Rebase empty segment '{}' onto '{}'",
+                        segment.name(),
+                        base_ref_name
+                    );
+                    sim_tips.insert(name.to_owned(), base_commit);
+                } else {
+                    let commits_res: Result<Vec<Oid>, Error> =
+                        segment.iter(repository)?.collect();
+                    let commits = commits_res?;
+                    println!(
+                        "  [dry-run] Rebase segment '{}' onto '{}' ({} commit{})",
+                        segment.name(),
+                        base_ref_name,
+                        commits.len(),
+                        if commits.len() == 1 { "" } else { "s" }
+                    );
+
+                    let mut current_commit = base_commit;
+                    if detect_conflicts {
+                        let empty_tree = repository.treebuilder(None).and_then(|b| b.write()).and_then(|id| repository.find_tree(id)).ok();
+                        for oid in &commits {
+                            let commit_to_apply = repository.find_commit(*oid)?;
+                            let ancestor_tree = if let Ok(parent_commit) = commit_to_apply.parent(0) {
+                                parent_commit.tree().ok()
+                            } else {
+                                empty_tree.clone()
+                            };
+                            let ancestor_tree = ancestor_tree.as_ref().or(empty_tree.as_ref()).unwrap();
+                            let our_tree = current_commit.tree()?;
+                            let their_tree = commit_to_apply.tree()?;
+
+                            let mut merge_opts = MergeOptions::new();
+                            merge_opts.patience(true).ignore_whitespace(true);
+
+                            let mut index = repository.merge_trees(
+                                ancestor_tree,
+                                &our_tree,
+                                &their_tree,
+                                Some(&mut merge_opts),
+                            )?;
+
+                            if index.has_conflicts() {
+                                let summary = commit_to_apply.summary().unwrap_or("");
+                                println!(
+                                    "    [conflict] Segment '{}': conflict on commit {} (\"{}\")",
+                                    segment.name(),
+                                    &oid.to_string()[..7],
+                                    summary
+                                );
+                                conflicts_found = true;
+                                break;
+                            } else {
+                                let tree_oid = index.write_tree_to(repository)?;
+                                let tree = repository.find_tree(tree_oid)?;
+                                let sig = repository.signature().unwrap_or_else(|_| {
+                                    git2::Signature::now("DryRun", "dry@run").unwrap()
+                                });
+                                let new_oid = repository.commit(
+                                    None,
+                                    &sig,
+                                    &sig,
+                                    commit_to_apply.message().unwrap_or(""),
+                                    &tree,
+                                    &[&current_commit],
+                                )?;
+                                current_commit = repository.find_commit(new_oid)?;
+                            }
+                        }
+                    }
+                    sim_tips.insert(name.to_owned(), current_commit);
+                }
+            }
+            GitHierarchy::Sum(sum) => {
+                let summands = sum.summands(repository);
+                let mut summand_commits: Vec<Commit<'_>> = Vec::new();
+                let mut summand_names: Vec<String> = Vec::new();
+
+                for s in &summands {
+                    let s_name = s.name().unwrap_or("");
+                    summand_names.push(s_name.to_owned());
+                    if let Some(c) = sim_tips.get(s_name) {
+                        summand_commits.push(c.clone());
+                    } else {
+                        let gh = hierarchy_graph
+                            .labeled_objects
+                            .get(s_name)
+                            .ok_or_else(|| anyhow!("summand '{}' not found", s_name))?;
+                        summand_commits.push(gh.commit()?);
+                    }
+                }
+
+                let summands_changed = summand_names
+                    .iter()
+                    .any(|n| sim_tips.contains_key(n));
+
+                let parent_commits = sum.parent_commits();
+                let (orhan_summands, extra_parents) = iterator_symmetric_difference(
+                    summand_commits.iter().map(|c| c.id()),
+                    parent_commits,
+                );
+
+                if !summands_changed && orhan_summands.is_empty() && extra_parents.is_empty() {
+                    println!("  [dry-run] Sum '{}' is up to date", sum.name());
+                    if let Ok(c) = sum.reference.borrow().peel_to_commit() {
+                        sim_tips.insert(name.to_owned(), c);
+                    }
+                } else {
+                    println!(
+                        "  [dry-run] Remerge sum '{}' from summands [{}]",
+                        sum.name(),
+                        summand_names.join(", ")
+                    );
+
+                    let mut current_merge = summand_commits.first().cloned();
+                    if detect_conflicts && summand_commits.len() >= 2 {
+                        let empty_tree = repository.treebuilder(None).and_then(|b| b.write()).and_then(|id| repository.find_tree(id)).ok();
+                        let mut first_commit = summand_commits[0].clone();
+                        for (i, other_commit) in summand_commits.iter().enumerate().skip(1) {
+                            let ancestor_oid = repository
+                                .merge_base(first_commit.id(), other_commit.id())
+                                .ok();
+                            let ancestor_tree = ancestor_oid
+                                .and_then(|oid| repository.find_commit(oid).ok())
+                                .and_then(|c| c.tree().ok());
+                            let ancestor_tree = ancestor_tree.as_ref().or(empty_tree.as_ref()).unwrap();
+                            let our_tree = first_commit.tree()?;
+                            let their_tree = other_commit.tree()?;
+
+                            let mut merge_opts = MergeOptions::new();
+                            merge_opts.patience(true).ignore_whitespace(true);
+
+                            let mut index = repository.merge_trees(
+                                ancestor_tree,
+                                &our_tree,
+                                &their_tree,
+                                Some(&mut merge_opts),
+                            )?;
+
+                            if index.has_conflicts() {
+                                println!(
+                                    "    [conflict] Sum '{}': conflict merging summand '{}'",
+                                    sum.name(),
+                                    summand_names[i]
+                                );
+                                conflicts_found = true;
+                                break;
+                            } else {
+                                let tree_oid = index.write_tree_to(repository)?;
+                                let tree = repository.find_tree(tree_oid)?;
+                                let sig = repository.signature().unwrap_or_else(|_| {
+                                    git2::Signature::now("DryRun", "dry@run").unwrap()
+                                });
+                                let msg = get_merge_commit_message(
+                                    sum.name(),
+                                    &summand_names[0],
+                                    summand_names.iter().skip(1).map(|s| s.as_str()),
+                                );
+                                let new_oid = repository.commit(
+                                    None,
+                                    &sig,
+                                    &sig,
+                                    &msg,
+                                    &tree,
+                                    &[&first_commit, other_commit],
+                                )?;
+                                first_commit = repository.find_commit(new_oid)?;
+                            }
+                        }
+                        current_merge = Some(first_commit);
+                    }
+
+                    if let Some(c) = current_merge {
+                        sim_tips.insert(name.to_owned(), c);
+                    }
+                }
+            }
+        }
+    }
+
+    if conflicts_found {
+        println!("Dry run completed: conflicts detected.");
+    } else {
+        println!("Dry run completed: no conflicts detected.");
+    }
+
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -524,15 +786,24 @@ fn main() -> Result<()> {
     resolve_reference_names_from_user(&repository, &mut cli.skip)
         .context("failed to resolve skip references")?;
 
-    rebase_tree(
-        &repository,
-        root.node_identity().to_owned(),
-        !cli.no_fetch,
-        &cli.ignore,
-        &cli.skip,
-        cli.quiet,
-    ).with_context(|| format!("failed to rebase tree starting at '{}'", root.node_identity()))?;
-
+    if cli.dry || cli.detect_conflicts {
+        rebase_tree_dry(
+            &repository,
+            root.node_identity().to_owned(),
+            &cli.ignore,
+            &cli.skip,
+            cli.detect_conflicts,
+        ).with_context(|| format!("failed dry run for tree starting at '{}'", root.node_identity()))?;
+    } else {
+        rebase_tree(
+            &repository,
+            root.node_identity().to_owned(),
+            !cli.no_fetch,
+            &cli.ignore,
+            &cli.skip,
+            cli.quiet,
+        ).with_context(|| format!("failed to rebase tree starting at '{}'", root.node_identity()))?;
+    }
     if !cli.quiet {
         println!("{}", Colorize::green("Done"));
     }
@@ -597,5 +868,60 @@ mod tests {
         let result = fetch_upstream_of(repo, branch_ref);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not in sync with upstream"));
+    }
+
+    #[test]
+    fn test_rebase_tree_dry_uptodate() {
+        let temp_repo = TestRepo::new();
+        let repo = &temp_repo.repo;
+
+        let commit1 = create_commit(repo, "initial", &[]);
+        let main_branch = repo.branch("main", &commit1, true).unwrap();
+        let seg = Segment::create(repo, "feature", main_branch.get(), commit1.id(), commit1.id()).unwrap();
+
+        let res = rebase_tree_dry(repo, seg.name().to_string(), &[], &[], false);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_rebase_tree_dry_detect_conflicts() {
+        let temp_repo = TestRepo::new();
+        let repo = &temp_repo.repo;
+
+        // Base commit on main with file1.txt: "1\n2\n3\n"
+        let file1_path = temp_repo.path.join("file1.txt");
+        std::fs::write(&file1_path, "1\n2\n3\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("file1.txt")).unwrap();
+        index.write().unwrap();
+        let base_commit = temp_repo.create_commit("initial commit", &[]);
+        repo.branch("main", &base_commit, true).unwrap();
+
+        // Segment 'feature' with base 'main'
+        let main_ref = repo.find_reference("refs/heads/main").unwrap();
+        let seg = Segment::create(repo, "feature", &main_ref, base_commit.id(), base_commit.id()).unwrap();
+
+        // Feature commit: file1.txt modified to "1\nA\n2\n3\n"
+        std::fs::write(&file1_path, "1\nA\n2\n3\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("file1.txt")).unwrap();
+        index.write().unwrap();
+        let feat_commit = temp_repo.create_commit("change 1", &[&base_commit]);
+        repo.reference("refs/heads/feature", feat_commit.id(), true, "update feature").unwrap();
+
+        // Update main branch with conflicting change: file1.txt modified to "1\n2 modified\n3\n"
+        std::fs::write(&file1_path, "1\n2 modified\n3\n").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(std::path::Path::new("file1.txt")).unwrap();
+        index.write().unwrap();
+        let main_commit = temp_repo.create_commit("change 2", &[&base_commit]);
+        repo.reference("refs/heads/main", main_commit.id(), true, "update main").unwrap();
+
+        let res = rebase_tree_dry(repo, seg.name().to_string(), &[], &[], true);
+        assert!(res.is_ok());
+
+        // Ensure branches/HEAD were not modified by dry run!
+        let feature_ref = repo.find_reference("refs/heads/feature").unwrap();
+        assert_eq!(feature_ref.target().unwrap(), feat_commit.id());
     }
 }
