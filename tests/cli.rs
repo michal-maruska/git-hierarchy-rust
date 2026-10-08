@@ -574,3 +574,60 @@ fn test_cli_git_store_and_restore_hierarchy() {
     assert!(stdout.contains("feature"));
     assert!(stdout.contains("Dry run mode"));
 }
+
+#[test]
+fn test_cli_rebase_poset_verbose_by_default() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit_on_main();
+
+    let seg_output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to define segment");
+    assert!(seg_output.status.success());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("-f")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset");
+
+    assert!(output.status.success(), "Stderr was: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Segment 'feature' is up-to-date") || stdout.contains("Done"), "Stdout was: {}", stdout);
+}
+
+#[test]
+fn test_cli_rebase_poset_quiet() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit_on_main();
+
+    let seg_output = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("feature")
+        .arg("main")
+        .output()
+        .expect("failed to define segment");
+    assert!(seg_output.status.success());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("-f")
+        .arg("--quiet")
+        .arg("feature")
+        .output()
+        .expect("failed to execute git-rebase-poset --quiet");
+
+    assert!(output.status.success(), "Stderr was: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("Segment 'feature'"), "Stdout was: {}", stdout);
+    assert!(!stdout.contains("Done"), "Stdout was: {}", stdout);
+    assert!(stdout.is_empty(), "Stdout was: {}", stdout);
+}
