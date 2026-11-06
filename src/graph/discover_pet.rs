@@ -1,5 +1,14 @@
+/**
+PETgraph based
+
+ Bridges Git data to the discovery engine:
+ GitHierarchyProvider implements GraphProvider<String> by lazily calling fetch_neighbors(vertex), which loads a GitHierarchy
+ for a branch/label from the repository and returns its parent/summand names.
+ `find_hierarchy' runs the DFS discovery from a root and materializes the result as a petgraph StableGraph plus
+ label→NodeIndex maps, recording discovery order.
+*/
 use crate::git_hierarchy::{GitHierarchy, load};
-use discover_graph::{GraphDiscoverer, GraphProvider};
+use discover_graph::{GraphDiscoverer, NeighborEnumerator};
 
 // GitHierarchy implements this, but we have to import explicitly.
 // ^^^^^^^^^^^^^ method not found in `GitHierarchy<'_>`
@@ -78,7 +87,7 @@ impl<'repo> GitHierarchyProvider<'repo> {
     }
 }
 
-impl<'repo> GraphProvider<String> for GitHierarchyProvider<'repo> {
+impl<'repo> NeighborEnumerator<String> for GitHierarchyProvider<'repo> {
     fn get_neighbors(&mut self, vertex: &String) -> Vec<String> {
         // bug: std::thread::sleep(std::time::Duration::from_millis(10));
         self.fetch_neighbors(vertex)
@@ -93,13 +102,16 @@ impl<'repo> GraphProvider<String> for GitHierarchyProvider<'repo> {
     */
 }
 
-//
+
 pub struct HierarchyGraph<'repo> {
+    // name -> object
     pub labeled_objects: HashMap<String, GitHierarchy<'repo>>,
-    // label->index
+    // name->index
     pub labeled_nodes: HashMap<std::string::String, petgraph::stable_graph::NodeIndex>,
+    //  on integers
     pub graph: petgraph::stable_graph::StableGraph<std::string::String, ()>,
     // order labels
+    // order of visit?
     pub discovery_order: Vec<std::string::String>,
 }
 
@@ -109,25 +121,31 @@ pub fn find_hierarchy<'repo>(
 ) -> HierarchyGraph<'repo>
 // GraphDiscoverer<String,GitHierarchyProvider<'repo>>
 {
-    // 1. Perform discovery
-    // not `mut' ?
+    // 1. Perform discovery, one-shot: everything comes back at once.
+    // Indices out of the library; the strings (vertex values) live on the
+    // returned graph and in the provider's object_map side-channel.
     let provider = GitHierarchyProvider::new(repo);
-    let mut discoverer = GraphDiscoverer::new(provider); // consumes!
+    let discoverer = GraphDiscoverer::new(provider); // consumed by the one-shot door
 
-    // T P ... P is provider, T String?
-    // GraphProvider<String>
-    // So we work with strings. Then ... how do we map to GitHierarchy ?
-    let discovery_order = discoverer.dfs_discover(root);
+    let (graph, provider, order_nodes) = discoverer.dfs_discover_graph(root);
 
-    let graph = discoverer.get_graph();
-    // is this different from provider ?
-    let (provider, hash_to_graph) = discoverer.get_provider();
+    // client view: label -> index.  The graph owns the unique labels;
+    // one pass over the weights materializes the map.
+    let labeled_nodes: HashMap<std::string::String, petgraph::stable_graph::NodeIndex> = graph
+        .node_indices()
+        .map(|i| (graph[i].clone(), i))
+        .collect();
 
-    // we cannot drop the provider.
-    // but we can move out of it?
+    // same for the traversal order: nodes -> labels
+    let discovery_order: Vec<std::string::String> = order_nodes.iter()
+        .map(|&i| graph[i].clone())
+        .collect();
+
+    // we cannot drop the provider wholesale: its object_map
+    // is the only place the GitHierarchy objects live.
     HierarchyGraph {
         labeled_objects: provider.object_map, // String -> GitHierarchy
-        labeled_nodes: hash_to_graph,       // stable graph:  String -> index ?
+        labeled_nodes,       // stable graph:  String -> index ?
         graph,               // index -> String?
         discovery_order,
     } //  indices?
