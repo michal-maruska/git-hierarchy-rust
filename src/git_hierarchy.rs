@@ -690,7 +690,20 @@ impl<'a> NodeExpander for GitHierarchy<'a> {
             GitHierarchy::Reference(r) => r.name().unwrap(),
         }
     }
+ }
+
+impl<'a> GitHierarchy<'a> {
+   pub fn node_full_name(&self) -> String { // &str
+        match self {
+            Self::Name(x) => x.clone(), // obsolete!
+            GitHierarchy::Segment(s) => s.reference.borrow().name().unwrap().to_string(),
+            GitHierarchy::Sum(s) => s.reference.borrow().name().unwrap().to_string(),
+            GitHierarchy::Reference(r) => r.name().unwrap().to_string(),
+        }
+   }
 }
+
+
 
 #[cfg(test)]
 mod tests {

@@ -775,7 +775,7 @@ fn main() -> Result<()> {
     };
     Segment::check_name_is_valid(&root)?;
 
-    let root = GitHierarchy::Name(root); // todo: load?
+    let root = load(&repository, &root)?;
 
     debug!("root is {}", root.node_identity());
 
@@ -787,7 +787,7 @@ fn main() -> Result<()> {
     if cli.dry || cli.detect_conflicts {
         rebase_tree_dry(
             &repository,
-            root.node_identity().to_owned(),
+            root.node_full_name().to_owned(), // fixme!
             &cli.ignore,
             &cli.skip,
             cli.detect_conflicts,
@@ -795,7 +795,7 @@ fn main() -> Result<()> {
     } else {
         rebase_tree(
             &repository,
-            root.node_identity().to_owned(),
+            root.node_full_name().to_owned(), // fixme!
             !cli.no_fetch,
             &cli.ignore,
             &cli.skip,
