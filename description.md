@@ -144,7 +144,45 @@ longer owns them: label→index maps, readable order.
 `labeled_objects = provider.object_map` — the enumerator's side-channel, which is part of
 why the provider comes back out the door.
 
-## 8. Round history
+## 8. `NodeIndex` — the escape hatch from the borrow checker
+
+The deeper pattern behind everything above: **we never stored references — we store numbers.**
+`NodeIndex` is a handle relative to the graph; it carries no lifetime and addresses nothing
+by itself, only through its owning `StableDiGraph` (row ID into a table, foreign key into a
+DB, git SHA into the object store).
+
+Two walls of safe Rust §6 died with that move, and a third bonus appeared:
+
+1. **No lifetimes.** A number can be stored in any HashMap / DFS context / event closure
+   without the E0597 problem; the "borrowed from itself" story that killed `&T` keys
+   (§6 wall 1) never gets written.
+2. **No interior-reference deadlock.** `depth_first_search(&self.dynamic_graph, …)` holds
+   only a *shared* borrow of the wrapper while explosion reshapes the insides
+   (`graph.borrow_mut()` inside `explode_node`). With real references into the graph the
+   traversal's borrow would forbid just-in-time growth; transporting *nodes* (numbers)
+   instead of *edges* makes "the DFS walks a graph that grows underneath it" legal.
+   Shared-borrow traversal + `RefCell` interior mutation only composes because the
+   traversal carries handles, not borrows.
+3. **Closures get cheap.** The DFS event handler owns `Vec<NodeIndex> order`, not
+   `Vec<&T>`: no lifetime annotation, no clone-protection dance.
+
+The honest bill (discipline downgraded from compile-time to runtime):
+
+- every "who exists?" question that `&T` provenance would answer for free is now answered
+  by explicit machinery: the valueless index Eq-check against canonical weights (§3), the
+  `discovered` memoization set (§4);
+- validity of numeric handles is our obligation: we never `remove_node`, and
+  `StableGraph` never renumbers or reuses slots after removal — the safest flavor of
+  index-holding. Mass removal later would land us in generational-key territory
+  (`slotmap`, `generational-arena`), with purge requirements exactly like §6 wall 3.
+
+Same move well-trodden elsewhere: petgraph itself is index-built; ECS engines address
+entities by id; `Rc`-free DAGs in Rust are, in practice, always arena + index. And the
+analogy that fits this repository: git models its objects by SHA, never by pointer, into
+an append-only store — `NodeIndex` into `StableDiGraph` is our mini-SHA system, and the
+hash-keyed `vertex_to_node` is lookup by content into it.
+
+## 9. Round history
 
 - **Round 0** — `vertex_to_node: HashMap<T, NodeIndex>` via `entry(vertex.clone())`.
   std's `entry()` takes keys by value (no borrowed-key entry on stable — rust-lang/rust#60889;
