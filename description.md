@@ -27,8 +27,8 @@ Other load-bearing words:
 
 | word | meaning |
 |---|---|
-| universe | all vertices the enumerator can list (`known_vertices`): segments + sums |
-| seed | a vertex dropped into the graph *before* traversal (`add_start_vertex`) |
+| universe | all vertices the enumerator can list (`known_vertices`) -- possibly a strict subset of the world; closure is a domain assumption (segments + sums), verified by the top-complement cross-check |
+| seed | a vertex dropped into the graph *before* traversal (`add_seed`); many seeds allowed over a session |
 | explosion (`explode_node`) | asking the enumerator for a node's neighbors and registering them as edges -- once ever per node |
 | unification | two equal vertices map to the *one* node (Eq against the canonical weight; §3) |
 | found-so-far | the graph-so-far as sole authority; enumerator answers are deltas merged into it (§1) |
@@ -112,9 +112,11 @@ Sequence for one node:
    then rebuilds its internal `WalkNeighbors` over the freshly populated list. This is what
    makes petgraph's DFS "discover on the fly": the neighbor iterator's first `.next()`
    explodes the node.
-2. **Memoized once** — `discovered: RefCell<HashSet<NodeIndex>>` guarantees the enumerator
-   is called **exactly once** per node, ever; afterwards the node is frozen (subsequent
-   visits walk materialized edges). NodeIndex-keyed = identity, not value.
+2. **Memoized once** — `discovered: RefCell<FixedBitSet>` (NodeIndex-keyed bitset, grown on
+   demand: `StableGraph` slots are dense and never renumbered) guarantees the enumerator
+   is called **exactly once** per node, ever; the contains-check and registration share
+   one borrow (atomic with respect to the session). Afterwards the node is frozen
+   (subsequent visits walk materialized edges). NodeIndex-keyed = identity, not value.
 3. **No-copy call-out** — the enumerator is invoked with `&graph[node_idx]`: a borrow of
    the canonical weight. No `T` copy crosses into or out of the graph.
 4. **Filter** — each returned neighbor passes `NeighborEnumerator::vertex_exists` before
@@ -228,3 +230,13 @@ hash-keyed `vertex_to_node` is lookup by content into it.
   traversal output is `Vec<NodeIndex>`; one consuming door `dfs_discover_graph`;
   `get_graph`/`get_provider`/`dfs_discover_iterator` removed; label maps became
   client-side derivations.
+- **Round 3** — whole-graph discovery for the original task (find the top nodes):
+  `NeighborEnumerator::known_vertices()` (universe; possibly a *partial* seed list --
+  `discover_whole_graph` results are everything **reachable** from it, closure is a
+  domain assumption verified by the top-complement cross-check); sweep-explode to
+  fixpoint with node-count termination; `discover_whole_graph` returns `(graph, enumerator)`
+  (readable order is a client derivation); `discovered` → `FixedBitSet` (grown on demand,
+  popcount-shimmed `discovered_count`); seed vocabulary: `add_seed`, `dfs_discover(seed)`.
+  Git side: `find_whole_hierarchy`, `top_nodes` = incoming-degree 0 (child→parent
+  orientation), canonical bare segment labels (base refs pushed full-name would have
+  split one segment into two nodes), `GitHierarchy::Name` panic → leaf.
