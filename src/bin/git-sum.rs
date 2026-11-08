@@ -4,7 +4,7 @@ use git2::Repository;
 use colored::Colorize;
 
 use git_hierarchy::cli::{ClapGitRepo, resolve_references_from_user};
-use git_hierarchy::git_hierarchy::{GitHierarchy, Sum, load, sums, sum_fmt};
+use git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load, sums, sum_fmt};
 use git_hierarchy::rebase::check_summands;
 use git_hierarchy::base::resolve_to_commit_maybe;
 
@@ -123,6 +123,7 @@ fn define_sum<'repo, 'a, T: AsRef<str> + 'a>(
     summands: &[T],
     hint: Option<T>,
 ) -> Result<()> {
+    Segment::check_name_is_valid(name)?;
     let sumrefs = resolve_references_from_user(repository, summands)
         .with_context(|| format!("failed to resolve summand references for sum '{}'", name))?;
     let hint_head_oid = resolve_to_commit_maybe(repository, hint)
@@ -134,6 +135,7 @@ fn define_sum<'repo, 'a, T: AsRef<str> + 'a>(
 }
 
 fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<()> {
+    Segment::check_name_is_valid(&args.sum_name)?;
     let gh = load(repository, &args.sum_name)?;
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
@@ -209,6 +211,7 @@ fn list_sums(repository: &Repository) -> Result<()> {
 }
 
 fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
+    Segment::check_name_is_valid(&args.name)?;
     let gh = load(repository, &args.name)?;
     if let GitHierarchy::Sum(sum) = gh {
         println!("sum {}", sum_fmt(sum.name()));
@@ -237,6 +240,7 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
 
 
 fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<()> {
+    Segment::check_name_is_valid(&args.name)?;
     let gh = load(repository, &args.name)?;
     if let GitHierarchy::Sum(mut sum) = gh {
         let sumrefs = resolve_references_from_user(repository, &args.summands)
@@ -250,6 +254,7 @@ fn add_to_sum(repository: &Repository, args: &AddArgs) -> Result<()> {
 }
 
 fn remove_from_sum(repository: &Repository, args: &RemoveArgs) -> Result<()> {
+    Segment::check_name_is_valid(&args.name)?;
     let gh = load(repository, &args.name)?;
 
     if let GitHierarchy::Sum(mut sum) = gh {

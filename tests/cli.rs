@@ -161,6 +161,26 @@ fn test_cli_sum_rejects_invalid_summand_name() {
 }
 
 #[test]
+fn test_cli_sum_define_rejects_invalid_sum_name() {
+    let temp_repo = TestRepo::new();
+    temp_repo.create_initial_commit_on_main();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_git-sum"))
+        .arg("-g")
+        .arg(&temp_repo.path)
+        .arg("--define")
+        .arg("--")
+        .arg("-invalid-sum")
+        .arg("main")
+        .output()
+        .expect("failed to execute git-sum define");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid reference name: -invalid-sum"), "Stderr was: {}", stderr);
+}
+
+#[test]
 fn test_cli_git_segment_nonexistent() {
     let temp_repo = TestRepo::new();
     temp_repo.create_initial_commit_on_main();

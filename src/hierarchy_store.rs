@@ -150,6 +150,13 @@ impl HierarchyData {
                         }
                     }
 
+                    if base.is_empty() || start.is_empty() || head.is_empty() {
+                        bail!("corrupt SEGMENT line missing fields: '{}'", line);
+                    }
+                    Segment::check_name_is_valid(&base)?;
+                    Oid::from_str(&start).context("invalid start OID in hierarchy store")?;
+                    Oid::from_str(&head).context("invalid head OID in hierarchy store")?;
+
                     hierarchy.segments.insert(
                         name.clone(),
                         StoredSegment {
@@ -176,6 +183,14 @@ impl HierarchyData {
                         } else if let Some(v) = p.strip_prefix("summands=") {
                             summands = v.split(',').filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
                         }
+                    }
+
+                    if head.is_empty() || summands.is_empty() {
+                        bail!("corrupt SUM line missing fields: '{}'", line);
+                    }
+                    Oid::from_str(&head).context("invalid head OID in hierarchy store")?;
+                    for s in &summands {
+                        Segment::check_name_is_valid(s)?;
                     }
 
                     hierarchy.sums.insert(
@@ -272,6 +287,7 @@ impl HierarchyData {
         report.push_str(&format!("Segments ({}):\n", self.segments.len()));
         for seg in self.segments.values() {
             Segment::check_name_is_valid(&seg.name)?;
+            Segment::check_name_is_valid(&seg.base)?;
             let local_gh = load(repository, &seg.name);
             match local_gh {
                 Ok(GitHierarchy::Segment(local_seg)) => {
@@ -323,6 +339,9 @@ impl HierarchyData {
         report.push_str(&format!("Sums ({}):\n", self.sums.len()));
         for sum in self.sums.values() {
             Segment::check_name_is_valid(&sum.name)?;
+            for summand in &sum.summands {
+                Segment::check_name_is_valid(summand)?;
+            }
             let local_gh = load(repository, &sum.name);
             match local_gh {
                 Ok(GitHierarchy::Sum(local_sum)) => {
@@ -396,6 +415,11 @@ mod tests {
         assert!(HierarchyData::deserialize("SUM name_missing").is_err());
         assert!(HierarchyData::deserialize("UNKNOWN_RECORD name").is_err());
         assert!(HierarchyData::deserialize("SEGMENT -invalid-name base=b start=s head=h").is_err());
+        assert!(HierarchyData::deserialize("SEGMENT seg base=-invalid-base start=1111111111111111111111111111111111111111 head=2222222222222222222222222222222222222222").is_err());
+        assert!(HierarchyData::deserialize("SEGMENT seg base=main start=invalid_oid head=2222222222222222222222222222222222222222").is_err());
+        assert!(HierarchyData::deserialize("SEGMENT seg base=main start=1111111111111111111111111111111111111111 head=invalid_oid").is_err());
+        assert!(HierarchyData::deserialize("SUM sum head=1111111111111111111111111111111111111111 summands=-invalid-summand").is_err());
+        assert!(HierarchyData::deserialize("SUM sum head=invalid_oid summands=b1").is_err());
     }
 
     #[test]
