@@ -19,7 +19,7 @@ use anyhow::{Context, Result as AnyhowResult, bail};
 use git2::{Commit, Oid, Reference, Repository, Revwalk, Sort, Error,ErrorCode};
 
 // low level sum & segment
-const SEGMENT_BASE_PATTERN: &str = "refs/base/";
+pub const SEGMENT_BASE_PATTERN: &str = "refs/base/";
 const SEGMENT_START_PATTERN: &str = "refs/start/";
 const SUM_SUMMAND_PATTERN: &str = "refs/sums/";
 const SEPARATOR : &str = "/";

@@ -7,7 +7,7 @@ PETgraph based
  `find_hierarchy' runs the DFS discovery from a root and materializes the result as a petgraph StableGraph plus
  label→NodeIndex maps, recording discovery order.
 */
-use crate::git_hierarchy::{GitHierarchy, load};
+use crate::git_hierarchy::{GitHierarchy, load, SEGMENT_BASE_PATTERN};
 use discover_graph::{GraphDiscoverer, NeighborEnumerator};
 
 // GitHierarchy implements this, but we have to import explicitly.
@@ -56,14 +56,19 @@ impl<'repo> GitHierarchyProvider<'repo> {
         let mut ch = Vec::new();
 
         match gh {
-            // regular branch. say `master'
-            GitHierarchy::Name(_x) => {
-                panic!("unprepared")
+            // regular branch: a leaf/bottom of the hierarchy (no declared parents)
+            GitHierarchy::Name(_) => {
+                // was panic!("unprepared") -- poisoned whole-discovery sweeps:
+                // sweeps legitimately reach plain branches via bases.
             }
             GitHierarchy::Segment(ref s) => {
                 let symbolic_base = s.base(repository);
-                // back to name...
-                ch.push(symbolic_base.name().unwrap().to_owned());
+                // back to name -- in CANONICAL bare form: the universe
+                // (segments()) yields bare names too, so both worlds
+                // unify onto one node.
+                let base_full = symbolic_base.name().unwrap(); // e.g. "refs/base/seg2"
+                let bare = base_full.strip_prefix(SEGMENT_BASE_PATTERN).unwrap_or(base_full);
+                ch.push(bare.to_owned());
             }
             GitHierarchy::Sum(ref s) => {
                 // copy
@@ -93,6 +98,21 @@ impl<'repo> NeighborEnumerator<String> for GitHierarchyProvider<'repo> {
         self.fetch_neighbors(vertex)
     }
 
+    /// The known universe: all segments and all sums (bare names, same
+    /// canonical form `fetch_neighbors` pushes).  Enables
+    /// `GraphDiscoverer::discover_whole_graph` ("find the whole graph,
+    /// then look for the very top nodes").
+    fn known_vertices(&mut self) -> Option<Vec<String>> {
+        let mut all = Vec::new();
+        if let Ok(it) = crate::git_hierarchy::segments(self.repository) {
+            all.extend(it);
+        }
+        if let Ok(it) = crate::git_hierarchy::sums(self.repository) {
+            all.extend(it);
+        }
+        Some(all) // Err read as "no such things" -- consistent with fetch's Err -> empty
+    }
+
     /*
     fn vertex_exists(&mut self, vertex: &String) -> bool {
         // present in the object_map
@@ -110,15 +130,12 @@ pub struct HierarchyGraph<'repo> {
     pub labeled_nodes: HashMap<std::string::String, petgraph::stable_graph::NodeIndex>,
     //  on integers
     pub graph: petgraph::stable_graph::StableGraph<std::string::String, ()>,
-    // order labels
-    // order of visit?
-    pub discovery_order: Vec<std::string::String>,
 }
 
 pub fn find_hierarchy<'repo>(
     repo: &'repo Repository,
     root: String,
-) -> HierarchyGraph<'repo>
+) -> (HierarchyGraph<'repo>, Vec<String>)
 // GraphDiscoverer<String,GitHierarchyProvider<'repo>>
 {
     // 1. Perform discovery, one-shot: everything comes back at once.
@@ -129,24 +146,82 @@ pub fn find_hierarchy<'repo>(
 
     let (graph, provider, order_nodes) = discoverer.dfs_discover_graph(root);
 
-    // client view: label -> index.  The graph owns the unique labels;
-    // one pass over the weights materializes the map.
-    let labeled_nodes: HashMap<std::string::String, petgraph::stable_graph::NodeIndex> = graph
+    let discovery_order: Vec<String> = order_nodes.into_iter().map(|i| graph[i].clone()).collect();
+
+    (into_hierarchy(graph, provider),
+     discovery_order)
+}
+
+/// The original task: discover the WHOLE graph (universe = all segments
+/// and sums, seeded, then swept to fixpoint -- unification is the library's
+/// job), then find the very TOP nodes: vertices nothing derives from.
+///
+/// Edges here are child -> parent, so "top" == incoming degree 0.
+pub fn find_whole_hierarchy<'repo>(repo: &'repo Repository) -> (HierarchyGraph<'repo>, Vec<String>) {
+    let provider = GitHierarchyProvider::new(repo);
+    let discoverer = GraphDiscoverer::new(provider);
+
+    let (graph, provider) = discoverer.discover_whole_graph();
+
+    let tops: Vec<String> = top_nodes(&graph).iter().map(|&i| graph[i].clone()).collect();
+
+    (into_hierarchy(graph, provider), tops)
+}
+
+/// tops of the hierarchy: vertices that are no one's base / summand-target:
+/// no *incoming* edges under the child -> parent orientation.
+pub fn top_nodes(graph: &petgraph::stable_graph::StableGraph<String, ()>)
+    -> Vec<petgraph::stable_graph::NodeIndex>
+{
+    graph
+        .node_indices()
+        .filter(|&n| graph.neighbors_directed(n, petgraph::Direction::Incoming).next().is_none())
+        .collect()
+}
+
+/// Client-side assembly, shared by the one-root and whole-graph doors:
+/// label maps derived in one pass from the graph (which owns the strings).
+fn into_hierarchy<'repo>(
+    graph: petgraph::stable_graph::StableGraph<String, ()>,
+    provider: GitHierarchyProvider<'repo>
+) -> HierarchyGraph<'repo> {
+    // label map + readable order are derived from the weights BEFORE the
+    // graph is moved into its field
+    let labeled_nodes: HashMap<String, petgraph::stable_graph::NodeIndex> = graph
         .node_indices()
         .map(|i| (graph[i].clone(), i))
-        .collect();
-
-    // same for the traversal order: nodes -> labels
-    let discovery_order: Vec<std::string::String> = order_nodes.iter()
-        .map(|&i| graph[i].clone())
         .collect();
 
     // we cannot drop the provider wholesale: its object_map
     // is the only place the GitHierarchy objects live.
     HierarchyGraph {
         labeled_objects: provider.object_map, // String -> GitHierarchy
-        labeled_nodes,       // stable graph:  String -> index ?
-        graph,               // index -> String?
-        discovery_order,
-    } //  indices?
+        labeled_nodes,
+        graph
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use petgraph::stable_graph::StableDiGraph;
+
+    // edges are child -> parent:  top == no incoming edges
+    #[test]
+    fn test_top_nodes() {
+        let mut g: StableDiGraph<String, ()> = StableDiGraph::new();
+        let feature = g.add_node("feature".to_string()); // top: nobody builds on it
+        let mid = g.add_node("mid".to_string());
+        let master = g.add_node("master".to_string()); // bottom: no base of its own
+        g.add_edge(feature, mid, ()); // feature's base is mid
+        g.add_edge(mid, master, ()); // mid's base is master
+        assert_eq!(top_nodes(&g), vec![feature]);
+        // and bottoms are the out-degree-0 nodes:
+        assert_eq!(
+            g.node_indices()
+                .filter(|&n| g.neighbors_directed(n, petgraph::Direction::Outgoing).next().is_none())
+                .collect::<Vec<_>>(),
+            vec![master]
+        );
+    }
 }

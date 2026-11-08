@@ -46,14 +46,14 @@ fn main() -> Result<()> {
     };
     Segment::check_name_is_valid(&root)?;
 
-    let hierarchy_graph = find_hierarchy(&repository, root.clone());
+    let (hierarchy_graph, discovery_order) = find_hierarchy(&repository, root.clone());
 
     let mut tops = Vec::new();
     tops.push(root.clone());
 
     let mut bases = Vec::new();
 
-    for v in &hierarchy_graph.discovery_order {
+    for v in &discovery_order {
         if let Some(node) = hierarchy_graph.labeled_objects.get(v) {
             match node {
                 GitHierarchy::Segment(segment) => {

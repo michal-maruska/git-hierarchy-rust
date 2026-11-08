@@ -78,6 +78,7 @@ fn is_sum_uptodate<'repo>(
     sum: &Sum<'repo>,
     object_map: &HashMap<String, GitHierarchy<'repo>>,
 ) -> Result<bool, RebaseError> {
+
     Segment::check_name_is_valid(sum.name())
         .map_err(|e| RebaseError::WrongHierarchy(format!("invalid sum name: {}", e)))?;
     let summands = sum.summands(repository);
@@ -390,11 +391,11 @@ fn rebase_tree(
 ) -> Result<()> {
     debug!("find the hierarchy from {}", &root);
     tracing::debug_span!("hierarchy");
-    let hierarchy_graph = find_hierarchy(repository, root);
+    let (hierarchy_graph, discovery_order) = find_hierarchy(repository, root);
 
     // verify we can do it:
     debug!("Verify");
-    for v in &hierarchy_graph.discovery_order {
+    for v in &discovery_order {
         let vertex = hierarchy_graph
             .labeled_objects
             .get(v)
@@ -416,7 +417,7 @@ fn rebase_tree(
     }
 
     debug!("Rebasing");
-    for v in &hierarchy_graph.discovery_order {
+    for v in &discovery_order {
         let vertex = hierarchy_graph
             .labeled_objects
             .get(v)
@@ -486,10 +487,10 @@ fn rebase_tree_dry(
     detect_conflicts: bool,
 ) -> Result<()> {
     debug!("find the hierarchy from {}", &root);
-    let hierarchy_graph = find_hierarchy(repository, root);
+    let (hierarchy_graph,discovery_order) = find_hierarchy(repository, root);
 
     // Verify
-    for v in &hierarchy_graph.discovery_order {
+    for v in &discovery_order {
         let vertex = hierarchy_graph
             .labeled_objects
             .get(v)
@@ -504,7 +505,7 @@ fn rebase_tree_dry(
     let mut sim_tips: HashMap<String, Commit<'_>> = HashMap::new();
     let mut conflicts_found = false;
 
-    for v in &hierarchy_graph.discovery_order {
+    for v in &discovery_order {
         let vertex = hierarchy_graph
             .labeled_objects
             .get(v)

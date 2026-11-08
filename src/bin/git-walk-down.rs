@@ -293,9 +293,9 @@ where
         &'a HashMap<String, GitHierarchy<'repo>>,
     ) -> Result<()>,
 {
-    let hierarchy_graph = find_hierarchy(repository, root.to_owned());
+    let (hierarchy_graph, discovery_order) = find_hierarchy(repository, root.to_owned());
 
-    for v in hierarchy_graph.discovery_order {
+    for v in discovery_order {
         let vertex = hierarchy_graph.labeled_objects.get(&v)
             .ok_or_else(|| anyhow!("hierarchy vertex not found for '{}'", v))?;
         process(repository, vertex, &hierarchy_graph.labeled_objects)

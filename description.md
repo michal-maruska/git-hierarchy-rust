@@ -3,6 +3,37 @@
 *Living doc: maintained across the refactor rounds; current API names reflect the
 `NeighborEnumerator`/`DiscoverableGraph` rename (round 2). History of rounds at the bottom.*
 
+## 0. Words: vertices vs nodes (and friends)
+
+Two registers of naming run through everything -- keep them apart:
+
+- **vertex** — the *application-side* object: a concrete `T` value with meaning to the
+  caller outside the graph world, e.g. a branch/segment name `String` ("seg2"), an `i32`
+  in tests. Vertices are what the `NeighborEnumerator` talks about *and* what the caller
+  thinks in; they are handed in as seeds and returned as neighbors.
+- **node** — the *projection* of a vertex into the graph: a `NodeIndex`, just a number.
+  The projection is the job of `get_or_create_node` (§3): given a vertex (a value that
+  means something to you), produce/emit the integer that addresses this exact value inside
+  the graph. petgraph algorithms -- DFS included -- only ever see nodes; the app only
+  ever names vertices.
+
+So: *the app speaks vertices; the algorithms speak nodes;* the discovered graph is the
+bilingual body that holds the mapping both ways -- `NodeIndex`->vertex via the weights,
+vertex->`NodeIndex` via the valueless index. Everything non-trivial (unification,
+tops, label maps) crosses this boundary exactly once, through `get_or_create_node` /
+`graph[i]`.
+
+Other load-bearing words:
+
+| word | meaning |
+|---|---|
+| universe | all vertices the enumerator can list (`known_vertices`): segments + sums |
+| seed | a vertex dropped into the graph *before* traversal (`add_start_vertex`) |
+| explosion (`explode_node`) | asking the enumerator for a node's neighbors and registering them as edges -- once ever per node |
+| unification | two equal vertices map to the *one* node (Eq against the canonical weight; §3) |
+| found-so-far | the graph-so-far as sole authority; enumerator answers are deltas merged into it (§1) |
+| tops | vertices nobody derives from: incoming-degree 0 under child->parent edges (§7) |
+
 ## 1. Two passes: traversal vs explosion
 
 Everything in the crate is one of these two passes. Hold only this distinction and the
