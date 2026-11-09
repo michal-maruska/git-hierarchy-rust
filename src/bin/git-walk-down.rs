@@ -1,4 +1,5 @@
 use clap::Parser;
+use git_hierarchy::graph::discover_pet::find_whole_hierarchy;
 use git2::{Repository, Reference};
 use anyhow::{anyhow, bail, Context, Result};
 
@@ -16,7 +17,7 @@ use ::git_hierarchy::graph::discover_pet::find_hierarchy;
 #[allow(unused)]
 use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load,
                                      segment_fmt, sum_fmt, plain_ref_fmt};
-
+use std::process;
 use ::git_hierarchy::rebase::check_sum;
 #[allow(unused)]
 use tracing::{debug, info};
@@ -43,13 +44,17 @@ struct Cli {
     #[arg(short='s', group = "format")]
     short: bool,
 
-    /// Rebind base references in the hierarchy from <FROM> to <TO>
+    /// modify:  rebind base references in the hierarchy from <FROM> to <TO>
     #[arg(long, short='r', num_args(2), value_names = ["FROM", "TO"])]
     replace: Vec<String>,
 
     /// Clone hierarchy nodes with suffix: [SUFFIX] or [SUFFIX_REMOVE] [SUFFIX_ADD]
     #[arg(long, short = 'c', num_args(1..3), value_names = ["SUFFIX"])]
     clone: Vec<String>,
+
+    // find the top:
+    #[arg(short='f')]
+    find: bool,
 
     root_reference: Option<String>,
 }
@@ -310,6 +315,7 @@ fn main() -> Result<()> {
     init_tracing(cli.verbose);
 
     let repository = cli.git_repository.open()?;
+
     if !cli.replace.is_empty() {
         for r in &cli.replace {
             Segment::check_name_is_valid(r)?;
@@ -325,6 +331,13 @@ fn main() -> Result<()> {
         for c in &cli.clone {
             Segment::check_name_is_valid(c)?;
         }
+    }
+    if cli.find {
+        let (_hierarchy_graph, tops) = find_whole_hierarchy(&repository);
+        for s in tops {
+            println!("{}", s); // top:
+        }
+        process::exit(0);
     }
 
     let root = match cli.root_reference {
