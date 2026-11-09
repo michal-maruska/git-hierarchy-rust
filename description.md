@@ -31,6 +31,7 @@ Other load-bearing words:
 | seed | a vertex dropped into the graph *before* traversal (`add_seed`); many seeds allowed over a session |
 | explosion (`explode_node`) | asking the enumerator for a node's neighbors and registering them as edges -- once ever per node |
 | unification | two equal vertices map to the *one* node (Eq against the canonical weight; §3) |
+| bare name | the ONE canonical spelling every crossing must speak (git side: `canonical_bare_name` -- `refs/base/X` -> `X`, `refs/heads/Y` -> `Y` via `extract_name`); a full spelling that sneaks in duplicates the node and fakes tops (§3, round 3) |
 | found-so-far | the graph-so-far as sole authority; enumerator answers are deltas merged into it (§1) |
 | tops | vertices nobody derives from: incoming-degree 0 under child->parent edges (§7) |
 
@@ -238,5 +239,7 @@ hash-keyed `vertex_to_node` is lookup by content into it.
   (readable order is a client derivation); `discovered` → `FixedBitSet` (grown on demand,
   popcount-shimmed `discovered_count`); seed vocabulary: `add_seed`, `dfs_discover(seed)`.
   Git side: `find_whole_hierarchy`, `top_nodes` = incoming-degree 0 (child→parent
-  orientation), canonical bare segment labels (base refs pushed full-name would have
-  split one segment into two nodes), `GitHierarchy::Name` panic → leaf.
+  orientation), one canonical dialect for every crossing (`canonical_bare_name`:
+  `refs/base/*` -> strip, everything else `extract_name`) -- full spellings had split
+  one segment into two nodes and made the bare copy look like a top
+  (regression: `test_whole_graph_unifies_bare_names`); `GitHierarchy::Name` panic → leaf.
