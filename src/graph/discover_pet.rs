@@ -230,6 +230,41 @@ fn into_hierarchy<'repo>(
 mod tests {
     use super::*;
     use petgraph::stable_graph::StableDiGraph;
+    use crate::test_utils::TestRepo;
+    use crate::graph::discover::NodeExpander;
+    use crate::git_hierarchy::{GitHierarchy, Segment, Sum};
+
+    // Hierarchical shape == the user's world:
+    //   main <- seg1 <- seg2,  sum1 = seg1 + seg2
+    // Child -> parent edges; tops = incoming 0.  Regression for the bug
+    // "tops contained every segment": sums pushed FULL summand refs
+    // (refs/base/seg1), not the universe's bare names.
+    #[test]
+    fn test_whole_graph_unifies_bare_names() {
+        let repo = TestRepo::new();
+        let _initial = repo.create_initial_commit_on_main();
+        let _seg1 = repo.generate_sample_segment("main", "seg1", "f1");
+        // chained over seg1: refs/heads/seg1 exists (Segment::create made it),
+        // so the short name resolves; the symbolic base ref is refs/base/seg1.
+        let _seg2 = repo.generate_sample_segment("seg1", "seg2", "f2");
+        let _sum = repo.create_sample_sum("sum1", &["seg1", "seg2"]);
+
+        let (hierarchy_graph, tops) = find_whole_hierarchy(&repo.repo);
+        let nodes: Vec<String> = hierarchy_graph.graph.node_weights().cloned().collect();
+        eprintln!("nodes: {:?}", nodes);
+
+        // Every crossing has been pushed in bare, canonical form:
+        // universe gave seg1/seg2/sum1; seg1's base is plain "main"
+        // (extract_name); seg2's base is bare "seg1"; sum1's summands
+        // are bare "seg1"/"seg2" -- all unified onto 4 nodes.
+        assert_eq!(nodes.len(), 4, "names must unify: {}", nodes.len());
+
+        // 4 edges: seg1->main, seg2->seg1, sum1->seg1, sum1->seg2
+        assert_eq!(hierarchy_graph.graph.edge_count(), 4);
+
+        // only the sum lies on top: nothing derives FROM it
+        assert_eq!(tops, vec!["sum1".to_owned()], "unexpected tops: {:?}", tops);
+    }
 
     // edges are child -> parent:  top == no incoming edges
     #[test]
