@@ -8,6 +8,7 @@ PETgraph based
  label→NodeIndex maps, recording discovery order.
 */
 use crate::git_hierarchy::{GitHierarchy, load, SEGMENT_BASE_PATTERN};
+use crate::utils::extract_name;
 use discover_graph::{GraphDiscoverer, NeighborEnumerator};
 
 // GitHierarchy implements this, but we have to import explicitly.
@@ -33,6 +34,25 @@ pub struct GitHierarchyProvider<'repo> {
 // Example with external data source
 
 // hardcoded to use String as
+
+/// THE canonical bare name inside the graph: every edge name and every
+/// universe entry speak this one dialect, or unification duplicates
+/// nodes (segments looked like tops of their own full-name copies).
+/// - refs/base/seg2       -> "seg2"      (the universe segments() form)
+/// - refs/heads/component -> "component" (extract_name)
+/// - refs/tags/v1         -> "v1"
+/// The reverse direction (load(bare)) resolves again: dwim tries
+/// refs/{name} first, then refs/tags/, refs/heads/ ... -- "seg2"
+/// resolves through the segment's own head branch, which
+/// Segment::create also creates; sums resolve through their
+/// refs/heads/{sum} branch made by Sum::create.
+fn canonical_bare_name(refname: &str) -> String {
+    match refname.strip_prefix(SEGMENT_BASE_PATTERN) {
+        Some(bare) => bare.to_owned(),
+        None => extract_name(refname).to_owned(),
+    }
+}
+
 impl<'repo> GitHierarchyProvider<'repo> {
     pub fn new(repo: &'repo Repository) -> Self {
         Self {
@@ -63,17 +83,22 @@ impl<'repo> GitHierarchyProvider<'repo> {
             }
             GitHierarchy::Segment(ref s) => {
                 let symbolic_base = s.base(repository);
-                // back to name -- in CANONICAL bare form: the universe
-                // (segments()) yields bare names too, so both worlds
-                // unify onto one node.
+                // symbolic target's FULL name -- canonicalize to the bare
+                // form the universe speaks, so the edge lands on the
+                // same node the universe seeded.
                 let base_full = symbolic_base.name().unwrap(); // e.g. "refs/base/seg2"
-                let bare = base_full.strip_prefix(SEGMENT_BASE_PATTERN).unwrap_or(base_full);
-                ch.push(bare.to_owned());
+                ch.push(canonical_bare_name(base_full));
             }
             GitHierarchy::Sum(ref s) => {
-                // copy
+                // summands' symbolic targets resolve to FULL reference
+                // names (refs/base/seg1, refs/heads/component).
+                // canonicalize: bare names are the one dialect the
+                // universe (segments()/sums()) uses -- full spellings
+                // duplicated every summand as an extra node and made the
+                // bare segment look like a top.
                 for summand in s.summands(repository) {
-                    ch.push(summand.name().unwrap().to_owned());
+                    let summand_full = summand.name().unwrap();
+                    ch.push(canonical_bare_name(summand_full));
                 }
             }
             GitHierarchy::Reference(ref _r) => {
