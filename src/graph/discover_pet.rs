@@ -1,14 +1,28 @@
 /**
-PETgraph based
+Bridges Git data to the discovery engine.
 
- Bridges Git data to the discovery engine:
- GitHierarchyProvider implements GraphProvider<String> by lazily calling fetch_neighbors(vertex), which loads a GitHierarchy
- for a branch/label from the repository and returns its parent/summand names.
- `find_hierarchy' runs the DFS discovery from a root and materializes the result as a petgraph StableGraph plus
- label→NodeIndex maps, recording discovery order.
+Four domains meet here; the bare name is the pivot of all crossings
+but git<->objects:
+
+1. git (full) references:  refs/base/{x}, refs/start/{x},
+                           refs/sums/{x}/{n}, refs/heads/{x}, refs/tags/{x}
+2. GitHierarchy objects:   Sum / Segment / Reference / Name  (made by load())
+3. bare names:             the graph weights AND the object_map keys
+4. NodeIndex:              assigned by the discovery itself
+
+`GitHierarchyProvider` implements `NeighborEnumerator<String>`:
+`fetch_neighbors(vertex)` loads a `GitHierarchy` for the vertex's name
+and pushes the names of its parents (segment bases / summands) --
+spread through `canonical_bare_name`, so edges speak the same dialect
+the universe (`known_vertices` = segments() + sums()) does.
+`GitHierarchy::node_identity()` is NOT the dialect: for the
+`Reference` variant it returns the full ref spelling (reports only).
+
+`find_hierarchy`/`find_whole_hierarchy` run the discovery and
+materialize a petgraph `StableGraph<String, ()>` plus label maps; the
+output is indices -- the strings live exactly once, in the weights.
 */
-use crate::git_hierarchy::{GitHierarchy, load, SEGMENT_BASE_PATTERN};
-use crate::utils::extract_name;
+use crate::git_hierarchy::{GitHierarchy, load, canonical_bare_name};
 use discover_graph::{GraphDiscoverer, NeighborEnumerator};
 
 // GitHierarchy implements this, but we have to import explicitly.
@@ -35,24 +49,6 @@ pub struct GitHierarchyProvider<'repo> {
 
 // hardcoded to use String as
 
-/// THE canonical bare name inside the graph: every edge name and every
-/// universe entry speak this one dialect, or unification duplicates
-/// nodes (segments looked like tops of their own full-name copies).
-/// - refs/base/seg2       -> "seg2"      (the universe segments() form)
-/// - refs/heads/component -> "component" (extract_name)
-/// - refs/tags/v1         -> "v1"
-/// The reverse direction (load(bare)) resolves again: dwim tries
-/// refs/{name} first, then refs/tags/, refs/heads/ ... -- "seg2"
-/// resolves through the segment's own head branch, which
-/// Segment::create also creates; sums resolve through their
-/// refs/heads/{sum} branch made by Sum::create.
-fn canonical_bare_name(refname: &str) -> String {
-    match refname.strip_prefix(SEGMENT_BASE_PATTERN) {
-        Some(bare) => bare.to_owned(),
-        None => extract_name(refname).to_owned(),
-    }
-}
-
 impl<'repo> GitHierarchyProvider<'repo> {
     pub fn new(repo: &'repo Repository) -> Self {
         Self {
@@ -76,26 +72,26 @@ impl<'repo> GitHierarchyProvider<'repo> {
         let mut ch = Vec::new();
 
         match gh {
-            // regular branch: a leaf/bottom of the hierarchy (no declared parents)
-            GitHierarchy::Name(_) => {
-                // was panic!("unprepared") -- poisoned whole-discovery sweeps:
-                // sweeps legitimately reach plain branches via bases.
-            }
+            // regular branch: a leaf/bottom of the hierarchy (no declared
+            // parents); whole-graph sweeps legitimately reach them via bases.
+            GitHierarchy::Name(_) => {}
             GitHierarchy::Segment(ref s) => {
+                // base() resolves the symbolic refs/base/SEG to its
+                // TARGET reference already -- the spelling we see here
+                // is the target's full name (refs/heads/main,
+                // refs/heads/seg1); refs/base/* never crosses into
+                // the graph.
                 let symbolic_base = s.base(repository);
-                // symbolic target's FULL name -- canonicalize to the bare
-                // form the universe speaks, so the edge lands on the
-                // same node the universe seeded.
-                let base_full = symbolic_base.name().unwrap(); // e.g. "refs/base/seg2"
+                let base_full = symbolic_base.name().unwrap(); // e.g. "refs/heads/main"
                 ch.push(canonical_bare_name(base_full));
             }
             GitHierarchy::Sum(ref s) => {
-                // summands' symbolic targets resolve to FULL reference
-                // names (refs/base/seg1, refs/heads/component).
-                // canonicalize: bare names are the one dialect the
-                // universe (segments()/sums()) uses -- full spellings
-                // duplicated every summand as an extra node and made the
-                // bare segment look like a top.
+                // summands() hands back the summands' TARGET references
+                // -- full names like refs/heads/component.  Edges must
+                // speak the same dialect as the universe
+                // (segments()/sums()): the unique bare name, so the
+                // edge names the existing vertex instead of spelling
+                // a fresh one.
                 for summand in s.summands(repository) {
                     let summand_full = summand.name().unwrap();
                     ch.push(canonical_bare_name(summand_full));
@@ -231,21 +227,21 @@ mod tests {
     use super::*;
     use petgraph::stable_graph::StableDiGraph;
     use crate::test_utils::TestRepo;
-    use crate::graph::discover::NodeExpander;
-    use crate::git_hierarchy::{GitHierarchy, Segment, Sum};
 
-    // Hierarchical shape == the user's world:
-    //   main <- seg1 <- seg2,  sum1 = seg1 + seg2
-    // Child -> parent edges; tops = incoming 0.  Regression for the bug
-    // "tops contained every segment": sums pushed FULL summand refs
-    // (refs/base/seg1), not the universe's bare names.
+    // Hierarchical shape:  main <- seg1 <- seg2,  sum1 = seg1 + seg2
+    // Edges are child -> parent; tops = incoming 0.  Guards the
+    // uniqueness of the dialect: every edge name must land on the
+    // vertex the universe already created (4 nodes, 4 edges, no
+    // spellings of their own), so the tops list is exactly the sum.
     #[test]
     fn test_whole_graph_unifies_bare_names() {
         let repo = TestRepo::new();
         let _initial = repo.create_initial_commit_on_main();
         let _seg1 = repo.generate_sample_segment("main", "seg1", "f1");
         // chained over seg1: refs/heads/seg1 exists (Segment::create made it),
-        // so the short name resolves; the symbolic base ref is refs/base/seg1.
+        // so the short name resolves; the SYMBOLIC base ref lives at
+        // refs/base/seg1 pointing at it -- but base() resolves the
+        // target, so what flows into the graph is bare "seg1".
         let _seg2 = repo.generate_sample_segment("seg1", "seg2", "f2");
         let _sum = repo.create_sample_sum("sum1", &["seg1", "seg2"]);
 
@@ -264,6 +260,40 @@ mod tests {
 
         // only the sum lies on top: nothing derives FROM it
         assert_eq!(tops, vec!["sum1".to_owned()], "unexpected tops: {:?}", tops);
+    }
+
+    // A summand that is a BRANCH heads/XX must stay the branch even when
+    // a same-named TAG exists: the bare name "XX" is resolved
+    // branch-first by load(), tags resolve only under their own
+    // remnant spelling (tags/XX).
+    #[test]
+    fn test_bare_branch_never_shadowed_by_tag() {
+        let repo = TestRepo::new();
+        let commit_branch = repo.create_commit("on the branch", &[]);
+        let commit_tag = repo.create_commit("tag's target", &[]);
+        repo.repo.branch("XX", &commit_branch, false).unwrap();
+        repo.repo
+            .reference("refs/tags/XX", commit_tag.id(), true, "tag")
+            .unwrap();
+
+        // sum over the BRANCH, by its full name (bypassing creation-side
+        // dwim which would also see the tag):
+        let refs = [repo.repo.find_reference("refs/heads/XX").unwrap()];
+        let _sum = crate::git_hierarchy::Sum::create(&repo.repo, "sum1", refs.iter(), None)
+            .unwrap();
+
+        let (hierarchy_graph, _tops) = find_whole_hierarchy(&repo.repo);
+
+        let gh = hierarchy_graph.labeled_objects.get("XX")
+            .expect("bare 'XX' must be a graph vertex");
+        match gh {
+            GitHierarchy::Reference(r) => {
+                let peeled = r.peel_to_commit().unwrap().id();
+                assert_eq!(peeled, commit_branch.id(),
+                    "bare 'XX' resolved to the tag, not the branch");
+            }
+            _ => panic!("expected a plain branch object"),
+        }
     }
 
     // edges are child -> parent:  top == no incoming edges

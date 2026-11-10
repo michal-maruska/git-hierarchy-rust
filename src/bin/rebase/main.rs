@@ -22,7 +22,7 @@ use ::git_hierarchy::cli::{ClapGitRepo, resolve_reference_names_from_user};
 use ::git_hierarchy::execute::git_run;
 use ::git_hierarchy::utils::{iterator_symmetric_difference, init_tracing,
 };
-use ::git_hierarchy::rebase::{check_segment, check_sum,
+use ::git_hierarchy::rebase::{check_segment, check_sum, graphed_summands,
                               rebase_segment,rebase_segment_continue,
                               segment_to_continue,
                               RebaseResult, RebaseError};
@@ -82,13 +82,9 @@ fn is_sum_uptodate<'repo>(
     Segment::check_name_is_valid(sum.name())
         .map_err(|e| RebaseError::WrongHierarchy(format!("invalid sum name: {}", e)))?;
     let summands = sum.summands(repository);
-    let graphed_summands: Vec<&GitHierarchy<'_>> = summands
-        .iter()
-        .map(|s| {
-            let gh = object_map.get(s.name().unwrap()).unwrap();
-            gh
-        })
-        .collect();
+    // resolution lives in the library: canonical bare names,
+    // None -> error with the full name.
+    let graphed_summands = graphed_summands(&summands, sum, object_map)?;
 
     for s in &graphed_summands {
         if !Segment::name_is_valid(s.node_identity())? {
@@ -122,10 +118,8 @@ fn remerge_sum<'repo>(
     }
 
     let summands = sum.summands(repository);
-    let graphed_summands: Vec<&GitHierarchy<'_>> = summands
-        .iter()
-        .map(|s| object_map.get(s.name().unwrap()).unwrap())
-        .collect();
+    // library helper: canonical bare names, None -> error (was unwrap-panic)
+    let graphed_summands = graphed_summands(&summands, sum, object_map)?;
 
     info!("so the sum is not up-to-date!");
 
@@ -835,14 +829,9 @@ mod tests {
         let sum = Sum::new(ref_invalid, sum.summands);
 
         let mut object_map = HashMap::new();
-        object_map.insert(
-            "refs/heads/b1".to_string(),
-            GitHierarchy::Reference(b1.into_reference()),
-        );
-        object_map.insert(
-            "refs/heads/b2".to_string(),
-            GitHierarchy::Reference(b2.into_reference()),
-        );
+        // object_map is keyed by the graph's canonical BARE names:
+        object_map.insert("b1".to_string(), GitHierarchy::Reference(b1.into_reference()));
+        object_map.insert("b2".to_string(), GitHierarchy::Reference(b2.into_reference()));
 
         let res = remerge_sum(repo, &sum, &object_map);
         assert!(matches!(res, Err(RebaseError::WrongHierarchy(_))));
@@ -867,14 +856,9 @@ mod tests {
         let sum = Sum::create(repo, "valid-sum", refs.into_iter(), Some(merge_commit)).unwrap();
 
         let mut object_map = HashMap::new();
-        object_map.insert(
-            "refs/heads/b1".to_string(),
-            GitHierarchy::Name("-option-inject".to_string()),
-        );
-        object_map.insert(
-            "refs/heads/b2".to_string(),
-            GitHierarchy::Reference(b2.into_reference()),
-        );
+        // object_map is keyed by the graph's canonical BARE names:
+        object_map.insert("b1".to_string(), GitHierarchy::Name("-option-inject".to_string()));
+        object_map.insert("b2".to_string(), GitHierarchy::Reference(b2.into_reference()));
 
         let res = remerge_sum(repo, &sum, &object_map);
         assert!(matches!(res, Err(RebaseError::WrongHierarchy(_))));

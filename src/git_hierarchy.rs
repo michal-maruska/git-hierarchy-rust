@@ -48,6 +48,28 @@ fn base_name(name: &str) -> String {
     concatenate(SEGMENT_BASE_PATTERN, name)
 }
 
+/// THE unique name of a hierarchy object: one bare short name that
+/// every spell of the same object maps onto, so working with the graph
+/// never depends on which ref spoke the vertex.
+///
+/// In the graph flows the INPUTS are already the resolved targets from
+/// `Segment::base()` / `Sum::summands()` -- full names of heads
+/// references (refs/heads/component).  The rows describe the function's
+/// total behavior:
+/// - refs/heads/component -> "component" (extract_name)   <- graph flows, always
+/// - refs/tags/v1         -> "tags/v1"   (foreign namespaces keep their
+///                         remnant -- they cannot collide with a bare
+///                         branch "v1")
+/// - refs/remotes/name/branch
+/// The reverse direction (load(bare)) resolves again, branch-first
+/// (git dwim prefers tags/ over heads/ -- see load() and git-rev-parse(1) ).
+pub fn canonical_bare_name(refname: &str) -> String {
+    match refname.strip_prefix(SEGMENT_BASE_PATTERN) {
+        Some(bare) => bare.to_owned(),
+        None => extract_name(refname).to_owned(),
+    }
+}
+
 fn start_name(name: &str) -> String {
     concatenate(SEGMENT_START_PATTERN, name)
 }
@@ -657,9 +679,15 @@ pub fn load<'repo>(
     if !Segment::name_is_valid(name)? {
         bail!("invalid reference name: {}", name);
     }
-    let reference = repository
-        .resolve_reference_from_short_name(name)
-        .with_context(|| format!("failed to load '{}'", name))?;
+    // Namespace-deterministic re-resolution of a bare name: the heads
+    // probe answers first (a bare name means the branch that owns it),
+    // dwim covers everything else -- summand refs spelled refs/tags/x
+    // still resolve to the tag, while bare "x" never does.
+    let reference = match repository.find_reference(&concatenate(GIT_HEADS_PATTERN, name)) {
+        Ok(branch) => Ok(branch),
+        Err(_) => repository.resolve_reference_from_short_name(name),
+    }
+    .with_context(|| format!("failed to load '{}'", name))?;
 
     if let Ok(base) = repository.find_reference(base_name(name).as_str()) {
         if let Ok(start) = repository.find_reference(start_name(name).as_str()) {
@@ -719,6 +747,27 @@ mod tests {
         assert_eq!(segment_fmt("test"), "test".red().bold().underline());
         assert_eq!(plain_ref_fmt("test"), "test".green().bold().underline());
         assert_eq!(sum_fmt("test"), "test".yellow().bold().italic());
+    }
+
+    // The invariant as spoken: a graph weight NEVER has the form
+    // "heads/XX".  extract_name erases "refs/" AND "heads/" (the one
+    // namespace whose short form defines the dialect); every other
+    // namespace drags its remnant along ("tags/v1"), so a weight is
+    // either a bare short name of a hierarchy object / branch, or a
+    // visibly-namespaced foreign one.
+    #[test]
+    fn test_canonical_bare_name_dialect() {
+        assert_eq!(canonical_bare_name("refs/heads/feature"), "feature");
+        assert_eq!(canonical_bare_name("heads/feature"), "feature");
+        assert_eq!(canonical_bare_name("feature"), "feature");  // already bare
+
+        assert_eq!(canonical_bare_name("refs/base/seg2"), "seg2");
+
+        // foreign namespaces keep their remnant, never "heads/"
+        assert_eq!(canonical_bare_name("refs/tags/v1"), "tags/v1");
+        assert_eq!(canonical_bare_name("refs/remotes/origin/feature"),
+                   "remotes/origin/feature");
+        assert_eq!(canonical_bare_name("ref: refs/heads/feature"), "feature"); // HEAD-style symref spelling
     }
 
     #[test]

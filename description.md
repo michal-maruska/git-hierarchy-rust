@@ -33,6 +33,7 @@ Other load-bearing words:
 | unification | two equal vertices map to the *one* node (Eq against the canonical weight; §3) |
 | bare name | the ONE canonical spelling every crossing must speak (git side: `canonical_bare_name` -- `refs/base/X` -> `X`, `refs/heads/Y` -> `Y` via `extract_name`); a full spelling that sneaks in duplicates the node and fakes tops (§3, round 3) |
 | found-so-far | the graph-so-far as sole authority; enumerator answers are deltas merged into it (§1) |
+| door | a *consuming* accessor: takes the wrapper by value, ends the session, and hands back what the work created or derived (graph, maps, order) -- `dfs_discover_graph`, `discover_whole_graph`.  NOT a door: the `&mut self` incremental calls (session continues), or `get_graph_snapshot` (clone; the session survives) (§7) |
 | tops | vertices nobody derives from: incoming-degree 0 under child->parent edges (§7) |
 
 ## 1. Two passes: traversal vs explosion
@@ -74,6 +75,31 @@ GraphDiscoverer::discovered_count() / edges_count()
 **The output is indices.** Vertex values (`T`) never leave the crate — they live exactly
 once, in the graph's node weights. Any label→index map or readable order is a client-side
 one-pass derivation from the returned graph (see §7).
+
+### The four domains, and the bridges between them
+
+| # | domain | values | who speaks it |
+|---|---|---|---|
+| 1 | git (full) references | `refs/base/{x}`, `refs/start/{x}`, `refs/sums/{x}/{n}`, `refs/heads/{x}`, `refs/tags/{x}` | git; `Segment::create`/`Sum::create` are the writers of the hierarchy namespaces |
+| 2 | GitHierarchy objects | `Sum`, `Segment`, `Reference`, `Name(String)` | constructed by `load(name)` |
+| 3 | bare names (weights/labels) | `"x"` — also the `object_map` keys | `canonical_bare_name` on git refs; `::name()` is already bare for Segment/Sum (`branch_name` at construction); `extract_name` for plain refs |
+| 4 | `NodeIndex` | fresh per discovery session | assigned by petgraph inside `get_or_create_node` |
+
+The bridges — every crossing except git↔objects routes through domain 3 (the bare
+name is the pivot):
+
+| crossing | door | notes |
+|---|---|---|
+| git ref → bare name | `canonical_bare_name` | heads/base spellings → `x`; foreign remnants stay (`tags/x`) |
+| git ref → object | `load(name)` | accepts bare or full (extracts first); branch-first resolution |
+| object → bare name | `Segment::name()`/`Sum::name()` | already bare, stored at `new()` |
+| object → full spelling | `node_full_name()`, `node_identity()` | display/report vocabulary — `node_identity` is NOT dialect-safe for `Reference` (returns the full `r.name()`); never use as lookup key |
+| bare name → object | `load(bare)` or `object_map[bare]` | the round trip that unifies discovery with the repo |
+| bare name ⇄ NodeIndex | discovery: `get_or_create_node` (hash + Eq unification, valueless hash index keyed by u64) • after discovery: `labeled_nodes` / one pass over `graph.node_indices()` | `NodeIndex → bare` is `graph[i]` |
+| NodeIndex → object | `labeled_objects[graph[i]]` | **no direct door** — always via the bare name |
+
+Note: `Name(String)` is the object-domain's pure label (no repository tie); the graph
+never *produces* one — only `load`'s Segment/Sum/Reference branches do.
 
 ## 3. The stitching point: `get_or_create_node`
 
@@ -243,3 +269,14 @@ hash-keyed `vertex_to_node` is lookup by content into it.
   `refs/base/*` -> strip, everything else `extract_name`) -- full spellings had split
   one segment into two nodes and made the bare copy look like a top
   (regression: `test_whole_graph_unifies_bare_names`); `GitHierarchy::Name` panic → leaf.
+- **Round 4** — align all code working with the graph on the unique name. The graph's
+  dialect (§2 domain table) is now enforced everywhere it can silently disagree:
+  `canonical_bare_name` promoted into `git_hierarchy` (the domain owns the ref→name
+  vocabulary); the rebase path folds its three inline object_map lookups into one
+  `graphed_summands` (a missing vertex is an error carrying the full name and the
+  owning sum, not an unwrap-panic); `load()` resolves bare names **branch-first**
+  (dwim prefers tags -- a bare name binds to the branch that owns it, tags keep their
+  remnant spelling); `node_identity()` of the `Reference` variant is flagged as
+  report-vocabulary, never a lookup key.  §2 got the four-domain bridge map;
+  comments were rewoven into invariant language -- the past stays here, in the
+  round history.

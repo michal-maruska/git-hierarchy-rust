@@ -26,7 +26,7 @@ use thiserror;
 use crate::utils::{iterator_symmetric_difference_indirect};
 
 #[allow(unused)]
-use crate::git_hierarchy::{GitHierarchy, Segment, Sum, load};
+use crate::git_hierarchy::{GitHierarchy, Segment, Sum, load, canonical_bare_name};
 use crate::graph::discover::NodeExpander;
 
 use crate::execute::git_run;
@@ -630,7 +630,7 @@ pub fn check_summands<'repo>(
     /*
     (mapped, rest_summands, left_overs_parent_commits) = distribute(sum);
     // either it went ahead ....or? what if it's rebased?m
-       
+
     for bad in rest_summands {
         // try to find in over
         find_ancestor()
@@ -639,6 +639,31 @@ pub fn check_summands<'repo>(
     */
 
     Ok(())
+}
+
+/// map the sum's resolved summand references onto the graph's entries.
+///
+/// The object_map is keyed by the graph's unique bare names, while
+/// summand refs carry their TARGET references' full names
+/// (refs/heads/component) -- canonicalize first, so each summand names
+/// an existing vertex; a miss is an error carrying the full name
+/// together with the owning sum.
+pub fn graphed_summands<'repo, 'g>(
+    summands: &[Reference<'repo>],
+    sum: &Sum<'repo>,
+    object_map: &'g HashMap<String, GitHierarchy<'repo>>,
+) -> Result<Vec<&'g GitHierarchy<'repo>>, RebaseError> {
+    summands.iter()
+        .map(|s| {
+            let summand_full = s.name().expect("should have a name");
+            let bare = canonical_bare_name(summand_full);
+            debug!("summand '{}' -> graph key '{}'", summand_full, bare);
+            object_map.get(&bare).ok_or_else(
+                || RebaseError::Anyhow(anyhow::anyhow!(
+                    "the graph has no '{}' (summand of {})",
+                    summand_full, sum.name())))
+        })
+        .collect::<Result<Vec<_>, RebaseError>>()
 }
 
 pub fn check_sum<'repo>(
@@ -668,20 +693,9 @@ pub fn check_sum<'repo>(
 
     // find the representation which we already have and keep updating.
 
-    // Map through object_map to the Nodes:
-    let graphed_summands: Vec<&GitHierarchy<'_>> = summands
-        .iter()
-        .map(
-            |s| {
-                let gh = object_map.get(s.name().unwrap()).unwrap();
-                debug!(
-                    "convert {:?} to {:?}",
-                    s.name().unwrap(),
-                    gh.node_identity()
-                );
-                gh
-            })
-        .collect();
+    // Map through object_map to the Nodes: keys are the graph's unique
+    // bare names; the helper applies canonical_bare_name first.
+    let graphed_summands = graphed_summands(&summands, sum, object_map)?;
 
     let parent_commits = sum.parent_commits();
 
