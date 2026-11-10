@@ -19,9 +19,9 @@ Two registers of naming run through everything -- keep them apart:
 
 So: *the app speaks vertices; the algorithms speak nodes;* the discovered graph is the
 bilingual body that holds the mapping both ways -- `NodeIndex`->vertex via the weights,
-vertex->`NodeIndex` via the valueless index. Everything non-trivial (unification,
-tops, label maps) crosses this boundary exactly once, through `get_or_create_node` /
-`graph[i]`.
+vertex->`NodeIndex` via the valueless index ("valueless": its keys are hash numbers,
+never a `T` -- defined in §6). Everything non-trivial (unification, tops, label maps)
+crosses this boundary exactly once, through `get_or_create_node` / `graph[i]`.
 
 Other load-bearing words:
 
@@ -104,7 +104,8 @@ never *produces* one — only `load`'s Segment/Sum/Reference branches do.
 ## 3. The stitching point: `get_or_create_node`
 
 Who unifies vertices found-so-far with newly discovered neighbors: `get_or_create_node`
-(`discoverable_graph.rs`). The identity ledger is a **valueless index**:
+(`discoverable_graph.rs`). The identity ledger is a **valueless index** (the map stores
+hash numbers, not values -- §6 has the full walk):
 
 ```rust
 vertex_to_node: RefCell<HashMap<u64 /*vertex-hash*/, Vec<NodeIndex>>>
@@ -164,24 +165,69 @@ equal vertices are one node, so "per-node" ≡ "per-vertex".
 
 ## 6. Why the `T`s live only in the graph (and why not `&T`)
 
-Goal: the graph is the single owner; ancillary structures shouldn't copy vertex values.
-Safe-Rust route taken: a **valueless hash index** — the map stores no `T`, equality is
-verified against the graph's own weights.
+The graph owns every vertex value.  A secondary structure (the unification map) must
+still answer "does a vertex like THIS already exist in the graph, and which node is
+it?" -- and that question forces a design choice: *what will a lookup compare against?*
+Three answers were on the table:
 
-The literal "store `&T` keys pointed into an owned graph" is a three-layer wall, documented
-for future readers:
+**A. the value** — copy the `T` into the map: `HashMap<T, NodeIndex>` (Round 0).
+Every hit *and* every miss paid a wasted clone (entry takes keys by value), `T: Eq + Hash`
+copies lived in 2–3 places — map key, weight, discovery set.
+
+**B. a pointer into the graph** — `HashMap<&'a T, NodeIndex>`: no copies, but the
+reference borrows from a self-mutating owner. Three walls, each fatal:
 
 1. **Borrow guard** — `RefCell` guards produce temporary lifetimes; a `HashMap<&'a T>`
    inside the same struct outlives every guard (E0597). No safe lifetime can exist.
 2. **Weights move** — `StableDiGraph` keeps weights in `Vec<Option<Node<T>>>`; growth
    reallocates and moves them, so unboxed `&T`/`*const T` dangle on the next `add_node`.
    (Would require `Box<T>` weights forever.)
-3. **Soundness discipline** — with `&'a T` (even `'static`-leaked) next to `&mut` access:
-   every future weight rewrite / `remove_node` must purge index entries first, i.e. you
-   hand-write the proof forever.
+3. **Soundness discipline** — with live `&'a T` next to `&mut` access, every future
+   weight rewrite / `remove_node` must purge index entries first: hand-writing the
+   proof forever.
 
-Middle ground rejected as unnecessary: `Rc<T>` sharing (same single allocation, zero
-unsafe) — the valueless index is strictly leaner.
+**C. the taken route: no value, only its hash** — a map whose *keys are u64 hash
+numbers*; the vertex values never enter it. That is the whole meaning of the word
+"valueless": the map contains NOTHING a `T` could hide.  It is an *index* the way a
+database index is: a lookup aid over data it does not own, here over the graph's
+weights, keyed by content-hash:
+
+```rust
+let hash = vertex_hash(&vertex);                 // u64, cheap (DefaultHasher)
+
+// hit check: only shared borrows, zero allocation
+let buckets = self.vertex_to_node.borrow();
+if let Some(candidates) = buckets.get(&hash) {   // buckets: HashMap<u64, Vec<NodeIndex>>
+    let graph = self.graph.borrow();
+    if let Some(idx) = candidates.iter().copied()
+        .find(|&i| graph[i] == vertex)           // Eq against the graph's OWN weight
+    {
+        return idx;                              // -- the unification point (§3)
+    }
+}
+// fall through to the miss side: add_node(vertex) + push into the hash's bucket
+
+// Buckets = the index.  Misses already sorted in the second borrow: the
+// vertex moves into the graph; the bucket receives the fresh NodeIndex.
+// (verbatim: discoverable_graph.rs get_or_create_node)
+```
+
+Reading the walk: the map *guesses* with the hash (who could possibly be equal?), the
+graph *decides* with `Eq` against its own canonical weight (§3).  Values are compared,
+never copied -- and never stored anywhere but the graph.  Consequences:
+
+- `T: Hash`/`Eq` consistency is load-bearing (two equal values must hash equal --
+  `String` is fine).
+- Hash collisions only **widen the candidate list** (a few extra `Eq` scans); they
+  can never produce a wrong answer, because `Eq` has the final say.
+- Cost per lookup: one hash + one short bucket scan. Zero `T` allocations on hit
+  or miss.
+
+Why not the middle ground (`Rc<T>` sharing, zero unsafe, same single allocation)?
+Because it buys the same reuse through heavier values: every `GitHierarchy` clone site
+carries a reference count and the Eq still compares through indirection. Hashing the
+graph-owned weight later is strictly leaner than making the domain's vertices
+reference-counted so a borrowed-key map can exist.
 
 ## 7. The exit doors and the client side
 
