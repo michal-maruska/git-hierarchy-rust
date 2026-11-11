@@ -175,7 +175,10 @@ Every hit *and* every miss paid a wasted clone (entry takes keys by value), `T: 
 copies lived in 2–3 places — map key, weight, discovery set.
 
 **B. a pointer into the graph** — `HashMap<&'a T, NodeIndex>`: no copies, but the
-reference borrows from a self-mutating owner. Three walls, each fatal:
+reference borrows from a self-mutating owner. Three walls, each fatal
+(not mechanics: `Hash`/`Eq` for `&T` deref to the target and would work fine --
+the walls are about the map *keeping* those borrows alive for its whole life,
+while the graph only offers temporary guards and moving weight storage):
 
 1. **Borrow guard** — `RefCell` guards produce temporary lifetimes; a `HashMap<&'a T>`
    inside the same struct outlives every guard (E0597). No safe lifetime can exist.
@@ -222,6 +225,13 @@ never copied -- and never stored anywhere but the graph.  Consequences:
   can never produce a wrong answer, because `Eq` has the final say.
 - Cost per lookup: one hash + one short bucket scan. Zero `T` allocations on hit
   or miss.
+- Why not std's copy-free door instead (`HashMap<String, V>::get(&str)` via
+  `Borrow<Q>`)? Because `Q` must carry *the same value semantics* as the key:
+  there is no `Q` for "keyed by hash" -- a hash is not injective, so Eq-of-hashes
+  is not Eq-of-values and no `Borrow` relation can be honest. The hash-gate/
+  Eq-confirm split exists inside std maps, not as a public lookup API -- the
+  bucket scan is that same two-step, re-aimed: gate in the map (owned numbers),
+  confirm against canonical weights (the graph's secrets).
 
 Why not the middle ground (`Rc<T>` sharing, zero unsafe, same single allocation)?
 Because it buys the same reuse through heavier values: every `GitHierarchy` clone site
