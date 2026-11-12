@@ -267,7 +267,9 @@ The deeper pattern behind everything above: **we never stored references — we 
 by itself, only through its owning `StableDiGraph` (row ID into a table, foreign key into a
 DB, git SHA into the object store).
 
-Two walls of safe Rust §6 died with that move, and a third bonus appeared:
+Storing numbers dissolves §6's *retention* walls outright (nothing borrowed, nothing
+held past a guard); what remains is one obligation -- numeric handles must stay valid
+(the honest bill below) -- plus three concrete gains:
 
 1. **No lifetimes.** A number can be stored in any HashMap / DFS context / event closure
    without the E0597 problem; the "borrowed from itself" story that killed `&T` keys
