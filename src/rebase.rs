@@ -525,7 +525,8 @@ fn ref_related_to(repo: &Repository,
     }
 }
 
-fn match_commits_to_references<'repo>( //  A,B
+// Flexible match:
+fn flexible_match_commits_to_references<'repo>( //  A,B
     repo: &Repository,
     a_vec: Vec<Reference<'repo>>,
     mut b_vec: Vec<Oid>,
@@ -604,7 +605,7 @@ pub fn check_summands<'repo>(
         // convert gh -> reference
         let summands_references = summands_away.iter().map(|x| x.reference_clone(repository).expect("gh should have reference associated") ).collect();
 
-        let (summands_refs_away, unknown_parents) = match_commits_to_references(repository, summands_references, unknown_parents);
+        let (summands_refs_away, unknown_parents) = flexible_match_commits_to_references(repository, summands_references, unknown_parents);
 
         if ! summands_refs_away.is_empty() {
             warn!("some summands are not in parents:");
@@ -666,6 +667,7 @@ pub fn graphed_summands<'repo, 'g>(
         .collect::<Result<Vec<_>, RebaseError>>()
 }
 
+// summands can be ahead of the respective merge-parent
 pub fn check_sum<'repo>(
     repository: &'repo Repository,
     sum: &Sum<'repo>,
