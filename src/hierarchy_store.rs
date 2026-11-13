@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
-use git2::{Oid, Repository, Signature};
+use git2::{Commit, Oid, Repository, Signature};
 use crate::git_hierarchy::{GitHierarchy, Segment, Sum, load, segments, sums};
 use std::collections::BTreeMap;
 use std::fs;
@@ -267,6 +267,27 @@ impl HierarchyData {
         ).context("failed to commit hierarchy store")?;
 
         Ok(commit_oid)
+    }
+
+    /// Store as an annotated tag on `target`: the serialization rides in
+    /// the tag message, after the caller's text and a blank line.
+    pub fn store_to_tag(
+        &self,
+        repository: &Repository,
+        tag_name: &str,
+        target: &Commit,
+        message: &str,
+    ) -> Result<Oid> {
+        Segment::check_name_is_valid(tag_name)?;
+        let full_message = format!("{}\n\n{}", message, self.serialize());
+        let sig = repository
+            .signature()
+            .or_else(|_| Signature::now("git-hierarchy", "git-hierarchy@local"))
+            .context("failed to create tagger signature")?;
+        let tag_oid = repository
+            .tag(tag_name, target.as_object(), &sig, &full_message, false)
+            .with_context(|| format!("failed to create tag '{}'", tag_name))?;
+        Ok(tag_oid)
     }
 
     pub fn load_from_branch(repository: &Repository, branch_name: &str) -> Result<Self> {
