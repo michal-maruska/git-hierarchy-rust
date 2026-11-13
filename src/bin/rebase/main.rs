@@ -33,7 +33,7 @@ use crate::graph::discover_pet::find_hierarchy;
 
 // I need both:
 #[allow(unused)]
-use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load};
+use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load, canonical_bare_name};
 
 use anyhow::{Context, Result, anyhow, bail};
 use colored::Colorize;
@@ -483,19 +483,28 @@ fn rebase_tree_dry(
     debug!("find the hierarchy from {}", &root);
     let (hierarchy_graph,discovery_order) = find_hierarchy(repository, root);
 
+    // The CLI lists arrive as reference spellings; the graph speaks the
+    // unique bare name.  Canonicalize once, compare against the vertex
+    // weights below -- never against node_identity() (the Reference
+    // variant spells full names and is report-vocabulary).
+    let ignore_bare: Vec<String> = ignore.iter().map(|s| canonical_bare_name(s)).collect();
+    let skip_bare: Vec<String> = skip.iter().map(|s| canonical_bare_name(s)).collect();
+
     // Verify
     for v in &discovery_order {
         let vertex = hierarchy_graph
             .labeled_objects
             .get(v)
             .ok_or_else(|| anyhow!("vertex '{}' missing from hierarchy objects", v))?;
-        if ignore.iter().any(|x| x == v) {
+        if ignore_bare.iter().any(|x| x == v) {
             continue;
         }
         check_node(repository, vertex, &hierarchy_graph.labeled_objects)?;
     }
 
     println!("Dry run steps:");
+    // sim_tips is keyed by the vertex weight (bare name) as well --
+    // every lookup below goes through canonical_bare_name.
     let mut sim_tips: HashMap<String, Commit<'_>> = HashMap::new();
     let mut conflicts_found = false;
 
@@ -504,10 +513,9 @@ fn rebase_tree_dry(
             .labeled_objects
             .get(v)
             .ok_or_else(|| anyhow!("vertex '{}' missing from hierarchy objects", v))?;
-        let name = vertex.node_identity();
 
-        if skip.iter().any(|x| x == name) {
-            println!("  [dry-run] Skip: {}", name);
+        if skip_bare.iter().any(|x| x == v) {
+            println!("  [dry-run] Skip: {}", v);
             continue;
         }
 
@@ -516,28 +524,31 @@ fn rebase_tree_dry(
                 bail!("invalid Name node variant in rebase_tree_dry: {}", n);
             }
             GitHierarchy::Reference(r) => {
-                let ref_name = r.name().unwrap_or(name);
+                let ref_name = r.name().unwrap_or(v);
                 println!("  [dry-run] Reference '{}' (no fetch)", ref_name);
                 if let Ok(c) = r.peel_to_commit() {
-                    sim_tips.insert(name.to_owned(), c);
+                    sim_tips.insert(v.clone(), c);
                 }
             }
             GitHierarchy::Segment(segment) => {
                 let base_ref_symbolic = segment.base(repository);
+                // the target's full spelling, for display only; keys
+                // are the unique bare name:
                 let base_ref_name = base_ref_symbolic.name().unwrap_or("");
+                let base_bare = canonical_bare_name(base_ref_name);
 
-                let base_commit = if let Some(c) = sim_tips.get(base_ref_name) {
+                let base_commit = if let Some(c) = sim_tips.get(&base_bare) {
                     c.clone()
                 } else {
                     base_ref_symbolic.peel_to_commit()?
                 };
 
-                let base_changed = sim_tips.contains_key(base_ref_name);
+                let base_changed = sim_tips.contains_key(&base_bare);
 
                 if !base_changed && segment.uptodate(repository) {
                     println!("  [dry-run] Segment '{}' is up to date", segment.name());
                     if let Ok(c) = segment.reference.borrow().peel_to_commit() {
-                        sim_tips.insert(name.to_owned(), c);
+                        sim_tips.insert(v.clone(), c);
                     }
                 } else if segment.empty(repository)? {
                     println!(
@@ -545,7 +556,7 @@ fn rebase_tree_dry(
                         segment.name(),
                         base_ref_name
                     );
-                    sim_tips.insert(name.to_owned(), base_commit);
+                    sim_tips.insert(v.clone(), base_commit);
                 } else {
                     let commits_res: Result<Vec<Oid>, Error> =
                         segment.iter(repository)?.collect();
@@ -610,29 +621,34 @@ fn rebase_tree_dry(
                             }
                         }
                     }
-                    sim_tips.insert(name.to_owned(), current_commit);
+                    sim_tips.insert(v.clone(), current_commit);
                 }
             }
             GitHierarchy::Sum(sum) => {
                 let summands = sum.summands(repository);
                 let mut summand_commits: Vec<Commit<'_>> = Vec::new();
                 let mut summand_names: Vec<String> = Vec::new();
+                let mut summand_bares: Vec<String> = Vec::new();
 
                 for s in &summands {
+                    // full spelling for display; lookups in the unique
+                    // bare name, like every other consumer of the map:
                     let s_name = s.name().unwrap_or("");
+                    let s_bare = canonical_bare_name(s_name);
                     summand_names.push(s_name.to_owned());
-                    if let Some(c) = sim_tips.get(s_name) {
+                    summand_bares.push(s_bare.clone());
+                    if let Some(c) = sim_tips.get(&s_bare) {
                         summand_commits.push(c.clone());
                     } else {
                         let gh = hierarchy_graph
                             .labeled_objects
-                            .get(s_name)
+                            .get(&s_bare)
                             .ok_or_else(|| anyhow!("summand '{}' not found", s_name))?;
                         summand_commits.push(gh.commit()?);
                     }
                 }
 
-                let summands_changed = summand_names
+                let summands_changed = summand_bares
                     .iter()
                     .any(|n| sim_tips.contains_key(n));
 
@@ -645,7 +661,7 @@ fn rebase_tree_dry(
                 if !summands_changed && orhan_summands.is_empty() && extra_parents.is_empty() {
                     println!("  [dry-run] Sum '{}' is up to date", sum.name());
                     if let Ok(c) = sum.reference.borrow().peel_to_commit() {
-                        sim_tips.insert(name.to_owned(), c);
+                        sim_tips.insert(v.clone(), c);
                     }
                 } else {
                     println!(
@@ -713,7 +729,7 @@ fn rebase_tree_dry(
                     }
 
                     if let Some(c) = current_merge {
-                        sim_tips.insert(name.to_owned(), c);
+                        sim_tips.insert(v.clone(), c);
                     }
                 }
             }
@@ -862,6 +878,30 @@ mod tests {
 
         let res = remerge_sum(repo, &sum, &object_map);
         assert!(matches!(res, Err(RebaseError::WrongHierarchy(_))));
+    }
+
+    #[test]
+    fn test_rebase_tree_dry_finds_summands() {
+        // The dry-run simulators must speak the graph's bare-name dialect:
+        // summands, bases and sim_tips keys are all looked up through
+        // canonical_bare_name; full spellings are display-only.  Before the
+        // alignment this failed with "summand 'refs/heads/seg1' not found".
+        let test_repo = TestRepo::new();
+
+        let _main = test_repo.create_initial_commit_on_main();
+        let seg1 = test_repo.generate_sample_segment("main", "seg1", "f1.txt");
+        let seg2 = test_repo.generate_sample_segment("main", "seg2", "f2.txt");
+
+        // a valid sum: its head is the merge commit of both segment tips
+        let c1 = seg1.reference.borrow().peel_to_commit().unwrap();
+        let c2 = seg2.reference.borrow().peel_to_commit().unwrap();
+        let merge_commit = create_commit(&test_repo.repo, "merge summands", &[&c1, &c2]);
+
+        let s1 = test_repo.repo.resolve_reference_from_short_name("seg1").unwrap();
+        let s2 = test_repo.repo.resolve_reference_from_short_name("seg2").unwrap();
+        let _sum1 = Sum::create(&test_repo.repo, "sum1", [&s1, &s2].into_iter(), Some(merge_commit)).unwrap();
+
+        rebase_tree_dry(&test_repo.repo, "sum1".to_owned(), &[], &[], false).unwrap();
     }
 
     // marker to avoid merge conflicts
