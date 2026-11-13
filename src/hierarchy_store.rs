@@ -26,71 +26,107 @@ pub struct HierarchyData {
     pub sums: BTreeMap<String, StoredSum>,
 }
 
+/// Record extractors shared by the namespace sweep (collect) and the
+/// discovery walk (collect_below).  The loaded object is the single
+/// source of truth for the spellings: base is stored as the base ref's
+/// TARGET (refs/heads/...), summands as their resolved target refs.
+fn stored_segment_record(seg: &Segment<'_>) -> StoredSegment {
+    let base_target = seg
+        .base
+        .borrow()
+        .symbolic_target()
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let head_oid = seg
+        .reference
+        .borrow()
+        .target()
+        .map(|o| o.to_string())
+        .unwrap_or_default();
+    StoredSegment {
+        name: seg.name().to_owned(),
+        base: base_target,
+        start: seg.start().to_string(),
+        head: head_oid,
+    }
+}
+
+fn stored_sum_record<'repo>(sum: &Sum<'repo>, repository: &'repo Repository) -> StoredSum {
+    let head_oid = sum
+        .reference
+        .borrow()
+        .target()
+        .map(|o| o.to_string())
+        .unwrap_or_default();
+    let mut summands = Vec::new();
+    for (_idx, _num, summand_ref) in sum.numbered_summands(repository) {
+        if let Some(target) = summand_ref.name() {
+            summands.push(target.to_string());
+        }
+    }
+    StoredSum {
+        name: sum.name().to_owned(),
+        head: head_oid,
+        summands,
+    }
+}
+
 impl HierarchyData {
+    /// Sweep the whole namespace (refs/base/*, refs/sums/*): every
+    /// listed name must be valid and load, or the sweep fails.
     pub fn collect(repository: &Repository) -> Result<Self> {
         let mut hierarchy = HierarchyData::default();
 
         let seg_names = segments(repository).context("failed to query segments")?;
         for seg_name in seg_names {
             Segment::check_name_is_valid(&seg_name)?;
-            if let Ok(gh) = load(repository, &seg_name) {
-                if let GitHierarchy::Segment(seg) = gh {
-                    let base_target = seg
-                        .base
-                        .borrow()
-                        .symbolic_target()
-                        .map(|s| s.to_string())
-                        .unwrap_or_default();
-                    let start_oid = seg.start().to_string();
-                    let head_oid = seg
-                        .reference
-                        .borrow()
-                        .target()
-                        .map(|o| o.to_string())
-                        .unwrap_or_default();
-
-                    hierarchy.segments.insert(
-                        seg_name.clone(),
-                        StoredSegment {
-                            name: seg_name,
-                            base: base_target,
-                            start: start_oid,
-                            head: head_oid,
-                        },
-                    );
-                }
+            if let Ok(GitHierarchy::Segment(seg)) = load(repository, &seg_name) {
+                hierarchy.segments.insert(seg_name, stored_segment_record(&seg));
             }
         }
 
         let sum_names = sums(repository).context("failed to query sums")?;
         for sum_name in sum_names {
             Segment::check_name_is_valid(&sum_name)?;
-            if let Ok(gh) = load(repository, &sum_name) {
-                if let GitHierarchy::Sum(sum) = gh {
-                    let head_oid = sum
-                        .reference
-                        .borrow()
-                        .target()
-                        .map(|o| o.to_string())
-                        .unwrap_or_default();
-                    let mut summands = Vec::new();
-                    for (_idx, _num, summand_ref) in sum.numbered_summands(repository) {
-                        if let Some(target) = summand_ref.name() {
-                            summands.push(target.to_string());
-                        }
-                    }
-                    hierarchy.sums.insert(
-                        sum_name.clone(),
-                        StoredSum {
-                            name: sum_name,
-                            head: head_oid,
-                            summands,
-                        },
-                    );
-                }
+            if let Ok(GitHierarchy::Sum(sum)) = load(repository, &sum_name) {
+                hierarchy.sums.insert(sum_name, stored_sum_record(&sum, repository));
             }
         }
 
+        Ok(hierarchy)
+    }
+
+    /// The hierarchy below `root`, via the library's discovery DFS
+    /// (find_hierarchy, as git-walk-down uses it): root is the
+    /// git-descendant end of the discovered set -- the walk follows
+    /// base/summand links to its ancestors, and the serialization is
+    /// exactly those objects' records.
+    ///
+    /// Unlike collect(), the namespace is never swept: objects that
+    /// fail to load simply do not appear (the provider treats them as
+    /// childless), so a partially broken graph still yields the
+    /// reachable records.
+    pub fn collect_below<'repo>(repository: &'repo Repository, root: &str) -> Result<Self> {
+        let (graph, order) =
+            crate::graph::discover_pet::find_hierarchy(repository, root.to_owned());
+        let mut hierarchy = HierarchyData::default();
+        for name in &order {
+            match graph.labeled_objects.get(name) {
+                Some(GitHierarchy::Segment(seg)) => {
+                    hierarchy
+                        .segments
+                        .insert(name.clone(), stored_segment_record(seg));
+                }
+                Some(GitHierarchy::Sum(sum)) => {
+                    hierarchy
+                        .sums
+                        .insert(name.clone(), stored_sum_record(sum, repository));
+                }
+                // plain branches (base anchors) and unresolvable names
+                // carry no record
+                _ => {}
+            }
+        }
         Ok(hierarchy)
     }
 
@@ -396,6 +432,88 @@ mod tests {
         assert!(HierarchyData::deserialize("SUM name_missing").is_err());
         assert!(HierarchyData::deserialize("UNKNOWN_RECORD name").is_err());
         assert!(HierarchyData::deserialize("SEGMENT -invalid-name base=b start=s head=h").is_err());
+    }
+
+    #[test]
+    fn test_collect_below_follows_the_ancestry() {
+        // root is the git-DESCENDANT end of the discovered set: the walk
+        // follows base/summand links to its ancestors.  Below seg1 live
+        // only seg1 and its base main (a plain branch -- no record); the
+        // sibling seg2 and the CHILD sum1 stay out.  Below sum1 the walk
+        // reaches both summand segments.
+        let test_repo = TestRepo::new();
+
+        let _main = test_repo.create_initial_commit_on_main();
+        let seg1 = test_repo.generate_sample_segment("main", "seg1", "f1.txt");
+        let seg2 = test_repo.generate_sample_segment("main", "seg2", "f2.txt");
+        let _other = test_repo.generate_sample_segment("main", "other", "f3.txt");
+
+        let c1 = seg1.reference.borrow().peel_to_commit().unwrap();
+        let c2 = seg2.reference.borrow().peel_to_commit().unwrap();
+        let merge_commit = create_commit(&test_repo.repo, "merge summands", &[&c1, &c2]);
+        let s1 = test_repo.repo.resolve_reference_from_short_name("seg1").unwrap();
+        let s2 = test_repo.repo.resolve_reference_from_short_name("seg2").unwrap();
+        let _sum1 = Sum::create(&test_repo.repo, "sum1", [&s1, &s2].into_iter(), Some(merge_commit)).unwrap();
+
+        let below_seg1 = HierarchyData::collect_below(&test_repo.repo, "seg1").unwrap();
+        let s = below_seg1.serialize();
+        assert!(s.contains("SEGMENT seg1 "));
+        assert!(!s.contains("SEGMENT seg2 "));
+        assert!(!s.contains("SEGMENT other "));
+        assert!(!s.contains("SUM sum1 "));
+
+        let below_sum1 = HierarchyData::collect_below(&test_repo.repo, "sum1").unwrap();
+        let s = below_sum1.serialize();
+        assert!(s.contains("SUM sum1 "));
+        assert!(s.contains("SEGMENT seg1 "));
+        assert!(s.contains("SEGMENT seg2 "));
+        assert!(!s.contains("SEGMENT other "));
+    }
+
+    #[test]
+    fn test_collect_below_survives_broken_graph_entries() {
+        // collect() dies on ONE broken namespace entry; the
+        // discovery-based path never sweeps the namespace and keeps
+        // working with the reachable records.
+        let test_repo = TestRepo::new();
+
+        let _main = test_repo.create_initial_commit_on_main();
+        let _seg1 = test_repo.generate_sample_segment("main", "seg1", "f1.txt");
+        test_repo.repo
+            .reference("refs/base/-bad", _main.id(), true, "bogus entry")
+            .unwrap();
+
+        assert!(HierarchyData::collect(&test_repo.repo).is_err());
+
+        let below = HierarchyData::collect_below(&test_repo.repo, "seg1").unwrap();
+        assert!(below.serialize().contains("SEGMENT seg1 "));
+        assert!(!below.serialize().contains("-bad"));
+    }
+
+    #[test]
+    fn test_store_to_tag_carries_the_serialization() {
+        let test_repo = TestRepo::new();
+        let _main = test_repo.create_initial_commit_on_main();
+        let _seg1 = test_repo.generate_sample_segment("main", "seg1", "f1.txt");
+        let data = HierarchyData::collect(&test_repo.repo).unwrap();
+
+        let commit = test_repo.create_commit("tag target", &[]);
+        let tag_oid = data
+            .store_to_tag(&test_repo.repo, "hier-1", &commit, "snapshot below seg1")
+            .unwrap();
+
+        let tag_ref = test_repo.repo.find_reference("refs/tags/hier-1").unwrap();
+        assert_eq!(tag_ref.target().unwrap(), tag_oid);
+        let tag = tag_ref.peel_to_tag().unwrap();
+        let message = tag.message().unwrap();
+        // the caller's text, then the serialization after a blank line:
+        assert!(message.starts_with("snapshot below seg1\n\n# Git Hierarchy Store"));
+        assert!(message.contains("SEGMENT seg1 "));
+
+        // no clobbering: a second store into the same tag must fail
+        assert!(data
+            .store_to_tag(&test_repo.repo, "hier-1", &commit, "again")
+            .is_err());
     }
 
     #[test]
