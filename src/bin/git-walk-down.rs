@@ -99,6 +99,8 @@ fn describe_node<'repo>(
                         name
                     );
                 }
+            } else if let Some(basename) = r.name().unwrap_or("").strip_prefix("refs/remotes/") {
+                println!("remote branch {}", basename.blue().bold().underline());
             } else if let Some(basename) = r.name().unwrap_or("").strip_prefix("refs/tags/") {
                 println!("tag {}", basename.blue().bold().underline());
             } else {
