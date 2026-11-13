@@ -35,8 +35,16 @@ fn main() -> Result<()> {
         .init();
 
     let repository = cli.git_repository.open()?;
-    let hierarchy = HierarchyData::collect(&repository)
-        .context("failed to collect hierarchy data")?;
+    let hierarchy = if let Some(root) = &cli.root {
+        // follow the example of git-walk-down: discovery DFS from the
+        // root (its git-ancestors); a broken graph still yields the
+        // reachable records -- unlike the whole-namespace sweep.
+        HierarchyData::collect_below(&repository, root)
+            .with_context(|| format!("failed to discover the hierarchy below '{}'", root))?
+    } else {
+        HierarchyData::collect(&repository)
+            .context("failed to collect hierarchy data")?
+    };
 
     if cli.stdout {
         print!("{}", hierarchy.serialize());
