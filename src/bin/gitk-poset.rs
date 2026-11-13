@@ -28,6 +28,17 @@ struct Cli {
     root_reference: Option<String>,
 }
 
+/// gitk must never see a bare NAME: a tag of the same spelling would
+/// make the argument ambiguous.  Bare names name branches (segments
+/// and sums own refs/heads/ branches); full refs pass through.
+fn branch_arg(name: &str) -> String {
+    if name.starts_with("refs/") {
+        name.to_string()
+    } else {
+        format!("refs/heads/{}", name)
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -49,7 +60,7 @@ fn main() -> Result<()> {
     let (hierarchy_graph, discovery_order) = find_hierarchy(&repository, root.clone());
 
     let mut tops = Vec::new();
-    tops.push(root.clone());
+    tops.push(branch_arg(&root));
 
     let mut bases = Vec::new();
 
@@ -63,7 +74,7 @@ fn main() -> Result<()> {
                         let base_ref = segment.base(&repository);
                         let name = base_ref.name().ok_or_else(|| anyhow!("base reference has no name"))?;
                         Segment::check_name_is_valid(name)?;
-                        let name_str = name.to_string();
+                        let name_str = branch_arg(name);
                         if !tops.contains(&name_str) {
                             tops.push(name_str);
                         }
@@ -85,7 +96,7 @@ fn main() -> Result<()> {
                     for x in summands_away {
                         let name = x.node_identity();
                         Segment::check_name_is_valid(name)?;
-                        let name_str = name.to_string();
+                        let name_str = branch_arg(name);
                         if !tops.contains(&name_str) {
                             tops.push(name_str);
                         }
@@ -94,7 +105,7 @@ fn main() -> Result<()> {
                 GitHierarchy::Reference(r) => {
                     let ref_name = r.name().unwrap_or(v);
                     Segment::check_name_is_valid(ref_name)?;
-                    let base_arg = format!("^{}", ref_name);
+                    let base_arg = format!("^{}", branch_arg(ref_name));
                     if !bases.contains(&base_arg) {
                         bases.push(base_arg);
                     }
