@@ -99,8 +99,9 @@ fn describe_node<'repo>(
                         name
                     );
                 }
+            } else if let Some(basename) = r.name().unwrap_or("").strip_prefix("refs/tags/") {
+                println!("tag {}", basename.blue().bold().underline());
             } else {
-                // tag?
                 bail!("implement describe_node for this {}", node.node_identity());
             }
         }
