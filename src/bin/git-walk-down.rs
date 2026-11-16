@@ -295,25 +295,6 @@ fn clone_node<'repo>(
 }
 
 
-fn walk_down<F>(repository: &Repository, root: &str, mut process: F) -> Result<()>
-where
-    F: for<'repo, 'a> FnMut(
-        &'repo git2::Repository,
-        &GitHierarchy<'repo>,
-        &'a HashMap<String, GitHierarchy<'repo>>,
-    ) -> Result<()>,
-{
-    let (hierarchy_graph, discovery_order) = find_hierarchy(repository, root.to_owned());
-
-    for v in discovery_order {
-        let vertex = hierarchy_graph.labeled_objects.get(&v)
-            .ok_or_else(|| anyhow!("hierarchy vertex not found for '{}'", v))?;
-        process(repository, vertex, &hierarchy_graph.labeled_objects)
-            .with_context(|| format!("failed processing node '{}'", vertex.node_identity()))?;
-    }
-    Ok(())
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -380,11 +361,14 @@ fn main() -> Result<()> {
                         &suffix_add))
             };
 
-        walk_down(&repository, &root,
-                  |repository, node, object_map| {
-                      clone_node(repository, node, object_map, &mut remapped,
-                                 &new_name)
-                  })?;
+        let (hierarchy_graph, discovery_order) = find_hierarchy(&repository, root.clone());
+
+        for v in &discovery_order {
+            let node = hierarchy_graph.labeled_objects.get(v)
+                .ok_or_else(|| anyhow!("hierarchy vertex not found for '{}'", v))?;
+            clone_node(&repository, node, &hierarchy_graph.labeled_objects, &mut remapped,
+                       &new_name)?;
+        }
     };
 
     if !cli.replace.is_empty() {
@@ -400,13 +384,23 @@ fn main() -> Result<()> {
             .with_context(|| format!("failed to resolve reference '{}'", cli.replace[1]))?;
         register_for_replacement(&mut remapped, &from, &target)?;
 
-        walk_down(&repository, &root, |repository, node, object_map| {
-            replace_nodes(repository, node, object_map, &mut remapped)
-        })?;
+        let (hierarchy_graph, discovery_order) = find_hierarchy(&repository, root.clone());
+
+        for v in &discovery_order {
+            let node = hierarchy_graph.labeled_objects.get(v)
+                .ok_or_else(|| anyhow!("hierarchy vertex not found for '{}'", v))?;
+            replace_nodes(&repository, node, &hierarchy_graph.labeled_objects, &mut remapped)?;
+        }
     } else {
-        walk_down(&repository, &root,
-                  |repository, node, _object_map|
-                  describe_node(repository, node, _object_map, cli.short))?;
+        let (hierarchy_graph, discovery_order) = find_hierarchy(&repository, root.clone());
+
+        for v in &discovery_order {
+            let node = hierarchy_graph.labeled_objects.get(v)
+                .ok_or_else(|| anyhow!("hierarchy vertex not found for '{}'", v))?;
+            describe_node(&repository, node, &hierarchy_graph.labeled_objects, cli.short)
+                .with_context(|| format!("failed processing node '{}'",
+                                         node.node_identity()))?;
+        }
     }
     Ok(())
 }
