@@ -355,6 +355,15 @@ impl<'repo> Segment<'repo> {
         reference
     }
 
+    /// consuming door: delete the segment's references -- the symbolic
+    /// base, the start marker, and the heads branch.
+    pub fn delete(mut self) -> Result<(), Error> {
+        self.base.borrow_mut().delete()?;
+        self.start.delete()?;
+        self.reference.borrow_mut().delete()?;
+        Ok(())
+    }
+
 
     pub fn iter(&self, repository: &'repo Repository) -> Result<Revwalk<'_>, Error> {
 
@@ -612,6 +621,27 @@ impl<'repo> Sum<'repo> {
         self.reference.borrow().peel_to_commit().unwrap().parent_count()
     }
 
+    /// consuming door: delete the sum's heads branch, then its summand
+    /// references, best effort -- every summand gets its attempt; the
+    /// first failure is reported afterwards.
+    pub fn delete(self) -> Result<(), Error> {
+        self.reference.borrow_mut().delete()?;
+        let mut first_err: Option<Error> = None;
+        for mut summand in self.summands {
+            let name = summand.name().unwrap_or("?").to_string();
+            if let Err(e) = summand.delete() {
+                warn!("failed to drop summand reference {}: {}", name, e);
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+        }
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
     pub fn name(&self) -> &str {
         // fixme: same as ....
         // branch_name(&self.reference.borrow());
@@ -768,6 +798,34 @@ mod tests {
         assert_eq!(canonical_bare_name("refs/remotes/origin/feature"),
                    "remotes/origin/feature");
         assert_eq!(canonical_bare_name("ref: refs/heads/feature"), "feature"); // HEAD-style symref spelling
+    }
+
+    #[test]
+    fn test_delete_segment_removes_its_references() {
+        let test_repo = TestRepo::new();
+        let _main = test_repo.create_initial_commit_on_main();
+        let seg = test_repo.generate_sample_segment("main", "seg1", "f1.txt");
+
+        seg.delete().unwrap();
+
+        assert!(test_repo.repo.find_reference("refs/base/seg1").is_err());
+        assert!(test_repo.repo.find_reference("refs/start/seg1").is_err());
+        assert!(test_repo.repo.find_reference("refs/heads/seg1").is_err());
+    }
+
+    #[test]
+    fn test_delete_sum_removes_its_references() {
+        let test_repo = TestRepo::new();
+        let _main = test_repo.create_initial_commit_on_main();
+        let _seg1 = test_repo.generate_sample_segment("main", "seg1", "f1.txt");
+
+        let s1 = test_repo.repo.resolve_reference_from_short_name("seg1").unwrap();
+        let sum = Sum::create(&test_repo.repo, "sum1", [&s1].into_iter(), None).unwrap();
+
+        sum.delete().unwrap();
+
+        assert!(test_repo.repo.find_reference("refs/heads/sum1").is_err());
+        assert!(test_repo.repo.find_reference("refs/sums/sum1/1").is_err());
     }
 
     #[test]

@@ -149,13 +149,9 @@ fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Seg
 
 fn delete(repository: &Repository, args: &DeleteCmd) -> Result<()> {
     let gh = load(repository, &args.segment_name)?;
-    if let GitHierarchy::Segment(mut segment) = gh {
+    if let GitHierarchy::Segment(segment) = gh {
         println!("Delete {} in {:?}", args.segment_name, repository.path());
-
-        segment.base.borrow_mut().delete().context("failed to delete segment base reference")?;
-        segment.start.delete().context("failed to delete segment start reference")?;
-        segment.reference.borrow_mut().delete().context("failed to delete segment reference")?;
-        Ok(())
+        segment.delete().context("failed to delete segment references")
     } else {
         bail!("{} is not a segment", args.segment_name);
     }

@@ -1,7 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser,Subcommand};
 use git2::Repository;
-use colored::Colorize;
 
 use git_hierarchy::cli::{ClapGitRepo, resolve_references_from_user};
 use git_hierarchy::git_hierarchy::{GitHierarchy, Sum, load, sums, sum_fmt};
@@ -137,24 +136,10 @@ fn delete_sum(repository: &Repository, args: &DeleteCmd) -> Result<()> {
     let gh = load(repository, &args.sum_name)?;
     if let GitHierarchy::Sum(sum) = gh {
         info!("deleting {}", args.sum_name);
-        sum.reference.borrow_mut().delete().context("failed to delete sum reference")?;
-
-        let mut first_err = None;
-        for mut summand in sum.summands {
-            if let Err(e) = summand.delete() {
-                eprintln!("{}: {}", Colorize::red("failed to drop summand reference"), e);
-                if first_err.is_none() {
-                    first_err = Some(e);
-                }
-            }
-        }
-        if let Some(e) = first_err {
-            return Err(e).context("failed to delete all summand references");
-        }
+        sum.delete().context("failed to delete sum references")
     } else {
         bail!("{} is not a sum", args.sum_name);
     }
-    Ok(())
 }
 
 fn main() -> Result<()> {
