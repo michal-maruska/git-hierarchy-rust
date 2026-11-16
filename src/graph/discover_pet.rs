@@ -144,11 +144,16 @@ impl<'repo> NeighborEnumerator<String> for GitHierarchyProvider<'repo> {
 }
 
 
+// Domain S
+// S ->  objects (why useful?)
+// it's assumed there is an inverse:  object -> S
+// S ->  nodes
+// note: the graph does contain  node(NodeIndex) -> S
 pub struct HierarchyGraph<'repo> {
     // name -> object
     pub labeled_objects: HashMap<String, GitHierarchy<'repo>>,
     // name->index
-    pub labeled_nodes: HashMap<std::string::String, petgraph::stable_graph::NodeIndex>,
+    pub labeled_nodes: HashMap<String, petgraph::stable_graph::NodeIndex>,
     //  on integers
     pub graph: petgraph::stable_graph::StableGraph<std::string::String, ()>,
 }
@@ -211,6 +216,7 @@ fn into_hierarchy<'repo>(
     // label map + readable order are derived from the weights BEFORE the
     // graph is moved into its field
     let labeled_nodes: HashMap<String, petgraph::stable_graph::NodeIndex> = graph
+        // could I use unsafe rust to use &graph[i] pointer.
         .node_indices()
         .map(|i| (graph[i].clone(), i))
         .collect();
@@ -218,7 +224,8 @@ fn into_hierarchy<'repo>(
     // we cannot drop the provider wholesale: its object_map
     // is the only place the GitHierarchy objects live.
     HierarchyGraph {
-        labeled_objects: provider.object_map, // String -> GitHierarchy
+        labeled_objects: provider.object_map, // as they are discovered/provided:
+                                              // String -> GitHierarchy
         labeled_nodes,
         graph
     }
