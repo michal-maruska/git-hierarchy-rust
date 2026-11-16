@@ -167,7 +167,9 @@ pub fn find_hierarchy<'repo>(
 
     let (graph, provider, order_nodes) = discoverer.dfs_discover_graph(root);
 
-    let discovery_order: Vec<String> = order_nodes.into_iter().map(|i| graph[i].clone()).collect();
+    // is it reversed? -- yes it's post-order
+    let mut discovery_order: Vec<String> = order_nodes.into_iter().map(|i| graph[i].clone()).collect();
+    discovery_order.reverse();
 
     (into_hierarchy(graph, provider),
      discovery_order)
