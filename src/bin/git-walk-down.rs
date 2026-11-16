@@ -339,6 +339,47 @@ fn main() -> Result<()> {
 
     info!("Start from the HEAD = {}", &root);
 
+    // multi-call binary: invoked as git-delete-down, the walk DELETES
+    // the discovered tree -- reversed discovery order, from the top
+    // (the root, a git-descendant) down to its ancestors, so every
+    // child goes before its base.
+    let invoked = std::env::args().next().unwrap_or_default();
+    let delete_mode = std::path::Path::new(&invoked)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .contains("delete-down");
+
+    if delete_mode {
+        let (hierarchy_graph, discovery_order) = find_hierarchy(&repository, root.clone());
+
+        // the discovery order is the topology order -- every vertex
+        // comes before the vertices it depends on (its base / its
+        // summands' targets); the tree dies top-down.  mut, because
+        // the loop consumes what it visits:
+        let mut graph = hierarchy_graph;
+        for v in &discovery_order {
+            match graph.labeled_objects.remove(v) {
+                Some(GitHierarchy::Segment(segment)) => {
+                    let name = segment.name().to_owned();
+                    println!("delete segment {}", segment_fmt(&name));
+                    segment.delete()
+                        .with_context(|| format!("failed to delete segment '{}'", name))?;
+                }
+                Some(GitHierarchy::Sum(sum)) => {
+                    let name = sum.name().to_owned();
+                    println!("delete sum {}", sum_fmt(&name));
+                    sum.delete()
+                        .with_context(|| format!("failed to delete sum '{}'", name))?;
+                }
+                // plain branches are the ancestors' anchors, not
+                // hierarchy objects -- left alone:
+                _ => info!("leaving '{}' (not a hierarchy object)", v),
+            }
+        }
+        return Ok(());
+    }
+
     // clone.
     if !cli.clone.is_empty() {
 
