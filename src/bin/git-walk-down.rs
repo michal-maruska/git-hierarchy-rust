@@ -18,7 +18,7 @@ use ::git_hierarchy::graph::discover_pet::find_hierarchy;
 use ::git_hierarchy::git_hierarchy::{GitHierarchy, Segment, Sum, load,
                                      segment_fmt, sum_fmt, plain_ref_fmt};
 use std::process;
-use ::git_hierarchy::rebase::check_sum;
+use ::git_hierarchy::rebase::{SumState, sum_state};
 #[allow(unused)]
 use tracing::{debug, info};
 
@@ -129,10 +129,12 @@ fn describe_node<'repo>(
         GitHierarchy::Sum(sum) => {
             let summands = sum.summands(repository);
 
-            println!("sum {}", sum_fmt(sum.name()));
-            if check_sum(repository, sum, object_map).is_err() {
-                println!("{}", "needs update".bright_red().on_white());
-            }
+            println!("sum {}\t{}", sum_fmt(sum.name()),
+                match sum_state(repository, sum, object_map)? {
+                    SumState::UpToDate => "up-to-date".normal(),
+                    SumState::Upgraded => "upgraded".green(),
+                    SumState::NeedsUpdate => "needs update".bright_red()
+                });
 
             if !brief {
                 for s in &summands {
