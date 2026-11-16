@@ -5,7 +5,7 @@ use colored::Colorize;
 
 use git_hierarchy::cli::{ClapGitRepo, resolve_references_from_user};
 use git_hierarchy::git_hierarchy::{GitHierarchy, Sum, load, sums, sum_fmt};
-use git_hierarchy::rebase::check_summands;
+use git_hierarchy::rebase::{summand_state, SumState};
 use git_hierarchy::base::resolve_to_commit_maybe;
 
 #[allow(unused_imports)]
@@ -211,24 +211,34 @@ fn list_sums(repository: &Repository) -> Result<()> {
 fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
     let gh = load(repository, &args.name)?;
     if let GitHierarchy::Sum(sum) = gh {
-        println!("sum {}", sum_fmt(sum.name()));
         let summands = sum.summands(repository);
-        for s in &summands {
-            println!("\t {}", s.name().unwrap_or(""));
-        }
-
         let summands_gh: Result<Vec<GitHierarchy<'_>>, _> =
             summands.into_iter().map(|x| {
                 let name = x.name().ok_or_else(|| anyhow!("summand reference missing name"))?;
                 load(repository, name)
             }).collect();
         let summands_gh = summands_gh?;
-
         let summands_refs = summands_gh.iter().collect();
 
-        if let Err(_e) = check_summands(repository, &sum, &sum.parent_commits(), &summands_refs) {
-            eprint!("Sum is not up-to-date");
+        println!("sum {}\t {}", sum_fmt(sum.name()),
+            match summand_state(repository, &sum, &sum.parent_commits(), &summands_refs)? {
+                SumState::NeedsUpdate => {
+                    // if let Err(_e) = check_summands(repository, &sum, &sum.parent_commits(), &summands_refs) {
+                    "needs re-merge"
+                }
+                SumState::Upgraded => {
+                    "out-grown"
+                }
+                SumState::UpToDate => {
+                    "up-to-date"
+                }
+            }
+        );
+
+        for s in &summands_gh {
+            println!("\t{}", s.node_full_name());
         }
+
         Ok(())
     } else {
         bail!("{} is not a sum", args.name);
