@@ -582,6 +582,70 @@ pub fn match_summands_to_parents<'repo, 'a>(
     )
 }
 
+/// The two degrees of an up-to-date sum:
+/// UpToDate    -- the summand commits are exactly the sum's parents;
+/// Upgraded    -- the strict match fails, but the flexible pass solves
+///                it: every summand's move is accounted for and every
+///                parent is explained ("summands only grew");
+/// NeedsUpdate -- otherwise: the hierarchy around the sum is broken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SumState {
+    UpToDate,
+    Upgraded,
+    NeedsUpdate,
+}
+
+pub fn summand_state<'repo>(
+    repository: &'repo Repository,
+    sum: &Sum<'repo>,
+    parent_commits: &[Oid],
+    summands: &Vec<&GitHierarchy<'repo>>)
+ -> Result<SumState, RebaseError>
+{
+    // I need a mapping function
+    // iter1, iter2, map-domain2-to-domain1
+    let (unknown_parents, summands_away) = match_summands_to_parents(repository, parent_commits, summands);
+
+    if summands_away.is_empty() && unknown_parents.is_empty() {
+        return Ok(SumState::UpToDate);
+    }
+
+    warn!("sum {} is not up-to-date. Looking closer...", sum.name());
+
+    // now map permissively:
+    // if the summand moved up.
+    // parent ... find whose ancestor it is.
+
+    // convert gh -> reference
+    let summands_references = summands_away
+        .iter()
+        .map(|x| x.reference_clone(repository))
+        .collect::<Result<Vec<Reference<'repo>>, git2::Error>>()?;
+
+    let (summands_refs_away, unknown_parents) = flexible_match_commits_to_references(repository, summands_references, unknown_parents);
+
+    if ! summands_refs_away.is_empty() {
+        warn!("some summands are not in parents:");
+        for i in summands_refs_away {
+            warn!("{}", i.name().unwrap());
+        }
+    } else {
+        if unknown_parents.is_empty() {
+            info!("solved all, summands only grew");
+            return Ok(SumState::Upgraded);
+        }
+    }
+
+    if !unknown_parents.is_empty() {
+        warn!("some parents are not in summands");
+        for i in unknown_parents {
+            warn!("{}", i);
+        }
+    }
+
+    Ok(SumState::NeedsUpdate)
+}
+
 pub fn check_summands<'repo>(
     repository: &'repo Repository,
     sum: &Sum<'repo>,
@@ -589,57 +653,10 @@ pub fn check_summands<'repo>(
     summands: &Vec<&GitHierarchy<'repo>>)
  -> Result<(), RebaseError>
 {
-    // I need a mapping function
-    // iter1, iter2, map-domain2-to-domain1
-    let (unknown_parents, summands_away) = match_summands_to_parents(repository, parent_commits, summands);
-
-    // now map permissively:
-    // if the summand moved up.
-    // parent ... find whose ancestor it is.
-
-
-    if !(summands_away.is_empty() && unknown_parents.is_empty()) {
-        warn!("sum {} is not up-to-date. Looking closer...", sum.name());
-
-        // one more attempt
-        // convert gh -> reference
-        let summands_references = summands_away.iter().map(|x| x.reference_clone(repository).expect("gh should have reference associated") ).collect();
-
-        let (summands_refs_away, unknown_parents) = flexible_match_commits_to_references(repository, summands_references, unknown_parents);
-
-        if ! summands_refs_away.is_empty() {
-            warn!("some summands are not in parents:");
-            for i in summands_refs_away {
-                warn!("{}", i.name().unwrap());
-            }
-        } else {
-            if unknown_parents.is_empty() {
-                info!("solved all, summands only grew");
-                return Ok(());
-            }
-        }
-
-        if !unknown_parents.is_empty() {
-            warn!("some parents are not in summands");
-            for i in unknown_parents {
-                warn!("{}", i);
-            }
-        }
-
-        return Err(RebaseError::WrongHierarchy(sum.name().to_owned()));
+    match summand_state(repository, sum, parent_commits, summands)? {
+        SumState::NeedsUpdate => Err(RebaseError::WrongHierarchy(sum.name().to_owned())),
+        _ => Ok(()),
     }
-    /*
-    (mapped, rest_summands, left_overs_parent_commits) = distribute(sum);
-    // either it went ahead ....or? what if it's rebased?m
-
-    for bad in rest_summands {
-        // try to find in over
-        find_ancestor()
-    }
-
-    */
-
-    Ok(())
 }
 
 /// map the sum's resolved summand references onto the graph's entries.
@@ -668,12 +685,14 @@ pub fn graphed_summands<'repo, 'g>(
 }
 
 // summands can be ahead of the respective merge-parent
-pub fn check_sum<'repo>(
+/// Classify a sum against the graph's objects.  Errors are real
+/// errors, not states: count <= 1 is WrongHierarchy (as before), and
+/// graphed_summands()'s resolution failures propagate.
+pub fn sum_state<'repo>(
     repository: &'repo Repository,
     sum: &Sum<'repo>,
     object_map: &HashMap<String, GitHierarchy<'repo>>,
-) -> Result<(), RebaseError> {
-
+) -> Result<SumState, RebaseError> {
     // terrible:
     // !i>2 in Rust  means ~i>2 in C
     // https://users.rust-lang.org/t/why-does-rust-use-the-same-symbol-for-bitwise-not-or-inverse-and-logical-negation/117337/2
@@ -706,7 +725,18 @@ pub fn check_sum<'repo>(
         debug!("  {}", c);
     }
 
-    check_summands(repository, sum, &parent_commits, &graphed_summands)
+    summand_state(repository, sum, &parent_commits, &graphed_summands)
+}
+
+pub fn check_sum<'repo>(
+    repository: &'repo Repository,
+    sum: &Sum<'repo>,
+    object_map: &HashMap<String, GitHierarchy<'repo>>,
+) -> Result<(), RebaseError> {
+    match sum_state(repository, sum, object_map)? {
+        SumState::NeedsUpdate => Err(RebaseError::WrongHierarchy(sum.name().to_owned())),
+        _ => Ok(()),
+    }
 }
 
 #[cfg(test)]
