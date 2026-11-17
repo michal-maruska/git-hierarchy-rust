@@ -133,6 +133,7 @@ fn describe_node<'repo>(
                 match sum_state(repository, sum, object_map)? {
                     SumState::UpToDate => "up-to-date".normal(),
                     SumState::Upgraded => "upgraded".green(),
+                    SumState::NotMerge => "not a merge (moved ahead?)".yellow(),
                     SumState::NeedsUpdate => "needs update".bright_red()
                 });
 

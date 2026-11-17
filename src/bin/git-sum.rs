@@ -211,6 +211,9 @@ fn describe_sum(repository: &Repository, args: &ShowArgs) -> Result<()> {
                     // if let Err(_e) = check_summands(repository, &sum, &sum.parent_commits(), &summands_refs) {
                     "needs re-merge"
                 }
+                SumState::NotMerge => {
+                    "not a merge (moved ahead?)"
+                }
                 SumState::Upgraded => {
                     "out-grown"
                 }
