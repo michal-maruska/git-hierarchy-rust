@@ -22,12 +22,6 @@ path = "src/lib.rs"
 name = "git-walk-down"
 path = "src/bin/git-walk-down.rs"
 
-# the same multi-call source: when installed under the name
-# git-delete-down, the walk consumes (deletes) the tree.
-[[bin]]
-name = "git-delete-down"
-path = "src/bin/git-walk-down.rs"
-
 [[bin]]
 name = "git-rebase-poset"
 path = "src/bin/rebase/main.rs"
