@@ -305,6 +305,35 @@ impl HierarchyData {
         Ok(tag_oid)
     }
 
+    /// The serialized section carried in the message of an annotated
+    /// tag -- the mirror of store_to_tag: the caller's text is
+    /// discarded, the records after the marker are kept.
+    pub fn read_tag_section(repository: &Repository, tag_name: &str) -> Result<String> {
+        Segment::check_name_is_valid(tag_name)?;
+        let reference = repository
+            .find_reference(&format!("refs/tags/{}", tag_name))
+            .with_context(|| format!("failed to find tag '{}'", tag_name))?;
+        let tag = reference
+            .peel_to_tag()
+            .with_context(|| format!("'{}' does not peel to an annotated tag \
+                                      (a lightweight tag carries no serialization)",
+                                     tag_name))?;
+        let message = tag
+            .message()
+            .ok_or_else(|| anyhow!("tag '{}' carries no message", tag_name))?;
+        extract_section(message)
+            .map(str::to_owned)
+            .ok_or_else(|| anyhow!("the message of tag '{}' carries no '{}' section",
+                                   tag_name, STORE_SECTION_MARKER))
+    }
+
+    /// Load the hierarchy records from an annotated tag's message.
+    pub fn load_from_tag(repository: &Repository, tag_name: &str) -> Result<Self> {
+        let section = Self::read_tag_section(repository, tag_name)?;
+        Self::deserialize(&section)
+            .with_context(|| format!("failed to parse the hierarchy section of tag '{}'", tag_name))
+    }
+
     pub fn load_from_branch(repository: &Repository, branch_name: &str) -> Result<Self> {
         Segment::check_name_is_valid(branch_name)?;
         let full_ref = format!("refs/heads/{}", branch_name);
