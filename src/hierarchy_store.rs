@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, anyhow, bail};
 use git2::{Commit, Oid, Repository, Signature};
+use petgraph::algo::toposort;
 use crate::git_hierarchy::{GitHierarchy, Segment, Sum, load, segments, sums};
+use crate::graph::discover_pet::{find_hierarchy, find_whole_hierarchy};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -24,6 +26,14 @@ pub struct StoredSum {
 pub struct HierarchyData {
     pub segments: BTreeMap<String, StoredSegment>,
     pub sums: BTreeMap<String, StoredSum>,
+    /// the records in dependency-first order -- the apply order.  The
+    /// writers guarantee it: collect/collect_below carry the graph's
+    /// topology order (reversed), deserialize captures the section's
+    /// order.  The readers trust it; check_order keeps an
+    /// inconsistent structure loud instead of silently dropping
+    /// records.
+    pub order: Vec<String>,
+}
 
 /// the line that opens the serialized section inside a longer text --
 /// a tag message carries the caller's text, then this marker, then
@@ -108,6 +118,26 @@ impl HierarchyData {
             }
         }
 
+        // the namespace sweep alone has no order: the whole graph
+        // provides it.  Its edges run child (dependent) -> parent
+        // (dependency), so the toposort reversed is dependency-first.
+        let (graph, _tops) = find_whole_hierarchy(repository);
+        let mut sorted: Vec<String> = toposort(&graph.graph, None)
+            .map_err(|_| anyhow!("circular dependency between the discovered objects"))?
+            .into_iter()
+            .rev()
+            .map(|i| graph.graph[i].clone())
+            .filter(|name| hierarchy.is_record(name))
+            .collect();
+        // records the graph did not reach (should not happen) keep
+        // their alphabetical place at the end:
+        for name in hierarchy.segments.keys().chain(hierarchy.sums.keys()) {
+            if !sorted.contains(name) {
+                sorted.push(name.clone());
+            }
+        }
+        hierarchy.order = sorted;
+
         Ok(hierarchy)
     }
 
@@ -122,20 +152,26 @@ impl HierarchyData {
     /// childless), so a partially broken graph still yields the
     /// reachable records.
     pub fn collect_below<'repo>(repository: &'repo Repository, root: &str) -> Result<Self> {
-        let (graph, order) =
-            crate::graph::discover_pet::find_hierarchy(repository, root.to_owned());
+        let (graph, order) = find_hierarchy(repository, root.to_owned());
         let mut hierarchy = HierarchyData::default();
-        for name in &order {
+        // find_hierarchy yields the topology order, dependent-first
+        // (every vertex before the vertices it depends on).  The
+        // records remember it REVERSED -- dependencies first -- so
+        // restoring can apply them as they come.  Plain branches
+        // (base anchors) and unresolvable names carry no record.
+        for name in order.iter().rev() {
             match graph.labeled_objects.get(name) {
                 Some(GitHierarchy::Segment(seg)) => {
                     hierarchy
                         .segments
                         .insert(name.clone(), stored_segment_record(seg));
+                    hierarchy.order.push(name.clone());
                 }
                 Some(GitHierarchy::Sum(sum)) => {
                     hierarchy
                         .sums
                         .insert(name.clone(), stored_sum_record(sum, repository));
+                    hierarchy.order.push(name.clone());
                 }
                 // plain branches (base anchors) and unresolvable names
                 // carry no record
@@ -145,24 +181,48 @@ impl HierarchyData {
         Ok(hierarchy)
     }
 
-    pub fn serialize(&self) -> String {
+    fn is_record(&self, name: &str) -> bool {
+        self.segments.contains_key(name) || self.sums.contains_key(name)
+    }
+
+    /// The order must cover exactly the record set.  The writers
+    /// guarantee it -- collect/collect_below carry the graph's
+    /// topology order (reversed, dependencies first), deserialize
+    /// captures the section's order -- and the readers trust it;
+    /// anything else is a bug to surface, not to repair silently.
+    fn check_order(&self) -> Result<()> {
+        if self.order.len() != self.segments.len() + self.sums.len()
+            || self.order.iter().any(|n| !self.is_record(n))
+        {
+            bail!("the records carry no complete order; \
+                   build the data via collect, collect_below or deserialize");
+        }
+        Ok(())
+    }
+
+    /// The serialized section: the records in the carried order --
+    /// dependencies first -- so restoring can apply them as they come.
+    pub fn serialize(&self) -> Result<String> {
+        self.check_order()?;
         let mut out = String::new();
-        out.push_str("# Git Hierarchy Store\n");
-        for seg in self.segments.values() {
-            out.push_str(&format!(
-                "SEGMENT {} base={} start={} head={}\n",
-                seg.name, seg.base, seg.start, seg.head
-            ));
+        out.push_str(STORE_SECTION_MARKER);
+        out.push('\n');
+        for name in &self.order {
+            if let Some(seg) = self.segments.get(name) {
+                out.push_str(&format!(
+                    "SEGMENT {} base={} start={} head={}\n",
+                    seg.name, seg.base, seg.start, seg.head
+                ));
+            } else if let Some(sum) = self.sums.get(name) {
+                out.push_str(&format!(
+                    "SUM {} head={} summands={}\n",
+                    sum.name,
+                    sum.head,
+                    sum.summands.join(",")
+                ));
+            }
         }
-        for sum in self.sums.values() {
-            out.push_str(&format!(
-                "SUM {} head={} summands={}\n",
-                sum.name,
-                sum.head,
-                sum.summands.join(",")
-            ));
-        }
-        out
+        Ok(out)
     }
 
     pub fn deserialize(input: &str) -> Result<Self> {
