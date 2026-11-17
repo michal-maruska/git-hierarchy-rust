@@ -48,6 +48,8 @@ pub enum RebaseResult {
 pub enum RebaseError {
     #[error("hierarchy broken at {}", .0)]
     WrongHierarchy(String),
+    #[error("sum '{}' is not a merge commit -- the branch was moved ahead?", .0)]
+    NotMerge(String),
     #[error("repository in wrong state during rebase: {0:?}")]
     WrongState(git2::RepositoryState),
     #[error("marker file wrong: {0:?}")]
@@ -582,16 +584,21 @@ pub fn match_summands_to_parents<'repo, 'a>(
     )
 }
 
-/// The two degrees of an up-to-date sum:
+/// The states of a sum:
 /// UpToDate    -- the summand commits are exactly the sum's parents;
 /// Upgraded    -- the strict match fails, but the flexible pass solves
 ///                it: every summand's move is accounted for and every
 ///                parent is explained ("summands only grew");
+/// NotMerge    -- the sum branch is not a merge commit: it was moved
+///                ahead manually.  A known situation, not an error:
+///                the display reports it, and rebasing the hierarchy
+///                stops on it.
 /// NeedsUpdate -- otherwise: the hierarchy around the sum is broken.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SumState {
     UpToDate,
     Upgraded,
+    NotMerge,
     NeedsUpdate,
 }
 
@@ -686,20 +693,20 @@ pub fn graphed_summands<'repo, 'g>(
 
 // summands can be ahead of the respective merge-parent
 /// Classify a sum against the graph's objects.  Errors are real
-/// errors, not states: count <= 1 is WrongHierarchy (as before), and
-/// graphed_summands()'s resolution failures propagate.
+/// errors, not states: graphed_summands()'s resolution failures
+/// propagate; a non-merge tip (the branch was moved ahead manually)
+/// is the known NotMerge state.
 pub fn sum_state<'repo>(
     repository: &'repo Repository,
     sum: &Sum<'repo>,
     object_map: &HashMap<String, GitHierarchy<'repo>>,
 ) -> Result<SumState, RebaseError> {
-    // terrible:
-    // !i>2 in Rust  means ~i>2 in C
-    // https://users.rust-lang.org/t/why-does-rust-use-the-same-symbol-for-bitwise-not-or-inverse-and-logical-negation/117337/2
     let count = sum.summand_count();
     if count <= 1 {
-        warn!("not a merge: {}, only {} parent commits", sum.name(), count);
-        return Err(RebaseError::WrongHierarchy(sum.name().to_owned()));
+        // a known situation: the sum branch was moved ahead manually,
+        // so its tip is not a merge commit anymore.
+        info!("sum {} is not a merge commit ({} parents) -- moved ahead?", sum.name(), count);
+        return Ok(SumState::NotMerge);
     }
 
     // each of the summands has relationship to a parent commit.
@@ -734,6 +741,9 @@ pub fn check_sum<'repo>(
     object_map: &HashMap<String, GitHierarchy<'repo>>,
 ) -> Result<(), RebaseError> {
     match sum_state(repository, sum, object_map)? {
+        // rebasing the hierarchy must stop on a moved-ahead sum: its
+        // summand correspondence is unknown.
+        SumState::NotMerge => Err(RebaseError::NotMerge(sum.name().to_owned())),
         SumState::NeedsUpdate => Err(RebaseError::WrongHierarchy(sum.name().to_owned())),
         _ => Ok(()),
     }
