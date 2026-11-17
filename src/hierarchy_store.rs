@@ -434,85 +434,96 @@ impl HierarchyData {
             return Ok(report);
         }
 
-        report.push_str(&format!("Segments ({}):\n", self.segments.len()));
-        for seg in self.segments.values() {
-            Segment::check_name_is_valid(&seg.name)?;
-            let local_gh = load(repository, &seg.name);
-            match local_gh {
-                Ok(GitHierarchy::Segment(local_seg)) => {
-                    let local_start = local_seg.start().to_string();
-                    let local_head = local_seg.reference.borrow().target().map(|o| o.to_string()).unwrap_or_default();
-                    let local_base = local_seg.base.borrow().symbolic_target().map(|s| s.to_string()).unwrap_or_default();
+        // dependencies first: each new record finds the references it
+        // needs (its base's branch, its summands' branches) already
+        // in place.
+        report.push_str(&format!("Records ({}):\n", self.segments.len() + self.sums.len()));
+        self.check_order()?;
+        for name in &self.order {
+            if let Some(seg) = self.segments.get(name) {
+                Segment::check_name_is_valid(&seg.name)?;
+                let local_gh = load(repository, &seg.name);
+                match local_gh {
+                    Ok(GitHierarchy::Segment(local_seg)) => {
+                        let local_start = local_seg.start().to_string();
+                        let local_head = local_seg.reference.borrow().target().map(|o| o.to_string()).unwrap_or_default();
+                        let local_base = local_seg.base.borrow().symbolic_target().map(|s| s.to_string()).unwrap_or_default();
 
-                    let status = if local_head == seg.head && local_start == seg.start && local_base == seg.base {
-                        "Up to date"
-                    } else {
-                        "Update required"
-                    };
+                        let status = if local_head == seg.head && local_start == seg.start && local_base == seg.base {
+                            "Up to date"
+                        } else {
+                            "Update required"
+                        };
 
-                    report.push_str(&format!(
-                        "  Segment '{}': {}\n    Base: {} (stored: {})\n    Start: {} (stored: {})\n    Head: {} (stored: {})\n",
-                        seg.name, status, local_base, seg.base, local_start, seg.start, local_head, seg.head
-                    ));
+                        report.push_str(&format!(
+                            "  Segment '{}': {}\n    Base: {} (stored: {})\n    Start: {} (stored: {})\n    Head: {} (stored: {})\n",
+                            seg.name, status, local_base, seg.base, local_start, seg.start, local_head, seg.head
+                        ));
 
-                    if !dry_run && status == "Update required" {
-                        if !seg.base.is_empty() {
-                            if let Ok(base_ref) = repository.find_reference(&seg.base) {
+                        if !dry_run && status == "Update required" {
+                            if !seg.base.is_empty() {
+                                let base_ref = repository.find_reference(&seg.base)
+                                    .with_context(|| format!("segment '{}': base '{}' not found",
+                                                             seg.name, seg.base))?;
                                 local_seg.set_base(repository, &base_ref);
                             }
+                            let start_oid = Oid::from_str(&seg.start)
+                                .with_context(|| format!("segment '{}': bad start oid '{}'",
+                                                         seg.name, seg.start))?;
+                            local_seg.set_start(repository, start_oid, "restore hierarchy")
+                                .with_context(|| format!("failed to restore segment '{}'", seg.name))?;
                         }
-                        if let Ok(start_oid) = Oid::from_str(&seg.start) {
-                            let _ = local_seg.set_start(repository, start_oid, "restore hierarchy");
+                    }
+                    _ => {
+                        report.push_str(&format!(
+                            "  Segment '{}': New segment to restore\n    Base: {}\n    Start: {}\n    Head: {}\n",
+                            seg.name, seg.base, seg.start, seg.head
+                        ));
+
+                        if !dry_run {
+                            let base_ref = repository.find_reference(&seg.base)
+                                .with_context(|| format!("segment '{}': base '{}' not found",
+                                                         seg.name, seg.base))?;
+                            let start_oid = Oid::from_str(&seg.start)
+                                .with_context(|| format!("segment '{}': bad start oid '{}'",
+                                                         seg.name, seg.start))?;
+                            let head_oid = Oid::from_str(&seg.head)
+                                .with_context(|| format!("segment '{}': bad head oid '{}'",
+                                                         seg.name, seg.head))?;
+                            Segment::create(repository, &seg.name, &base_ref, start_oid, head_oid)
+                                .with_context(|| format!("failed to restore segment '{}'", seg.name))?;
                         }
                     }
                 }
-                _ => {
-                    report.push_str(&format!(
-                        "  Segment '{}': New segment to restore\n    Base: {}\n    Start: {}\n    Head: {}\n",
-                        seg.name, seg.base, seg.start, seg.head
-                    ));
-
-                    if !dry_run {
-                        if let (Ok(base_ref), Ok(start_oid), Ok(head_oid)) = (
-                            repository.find_reference(&seg.base),
-                            Oid::from_str(&seg.start),
-                            Oid::from_str(&seg.head),
-                        ) {
-                            let _ = Segment::create(repository, &seg.name, &base_ref, start_oid, head_oid);
-                        }
+            } else if let Some(sum) = self.sums.get(name) {
+                Segment::check_name_is_valid(&sum.name)?;
+                let local_gh = load(repository, &sum.name);
+                match local_gh {
+                    Ok(GitHierarchy::Sum(local_sum)) => {
+                        let local_head = local_sum.reference.borrow().target().map(|o| o.to_string()).unwrap_or_default();
+                        report.push_str(&format!(
+                            "  Sum '{}': Head {} (stored: {}), Summands: {}\n",
+                            sum.name, local_head, sum.head, sum.summands.join(", ")
+                        ));
                     }
-                }
-            }
-        }
+                    _ => {
+                        report.push_str(&format!(
+                            "  Sum '{}': New sum to restore\n    Head: {}\n    Summands: {}\n",
+                            sum.name, sum.head, sum.summands.join(", ")
+                        ));
 
-        report.push_str(&format!("Sums ({}):\n", self.sums.len()));
-        for sum in self.sums.values() {
-            Segment::check_name_is_valid(&sum.name)?;
-            let local_gh = load(repository, &sum.name);
-            match local_gh {
-                Ok(GitHierarchy::Sum(local_sum)) => {
-                    let local_head = local_sum.reference.borrow().target().map(|o| o.to_string()).unwrap_or_default();
-                    report.push_str(&format!(
-                        "  Sum '{}': Head {} (stored: {}), Summands: {}\n",
-                        sum.name, local_head, sum.head, sum.summands.join(", ")
-                    ));
-                }
-                _ => {
-                    report.push_str(&format!(
-                        "  Sum '{}': New sum to restore\n    Head: {}\n    Summands: {}\n",
-                        sum.name, sum.head, sum.summands.join(", ")
-                    ));
-
-                    if !dry_run {
-                        let mut summand_refs = Vec::new();
-                        for summand in &sum.summands {
-                            if let Ok(r) = repository.find_reference(summand) {
-                                summand_refs.push(r);
+                        if !dry_run {
+                            let mut summand_refs = Vec::new();
+                            for summand in &sum.summands {
+                                summand_refs.push(
+                                    repository.find_reference(summand)
+                                        .with_context(|| format!("sum '{}': summand '{}' not found",
+                                                                 sum.name, summand))?);
                             }
-                        }
-                        if !summand_refs.is_empty() {
-                            let hint = Oid::from_str(&sum.head).ok().and_then(|oid| repository.find_commit(oid).ok());
-                            let _ = Sum::create(repository, &sum.name, summand_refs.iter(), hint);
+                            let hint = Oid::from_str(&sum.head).ok()
+                                .and_then(|oid| repository.find_commit(oid).ok());
+                            Sum::create(repository, &sum.name, summand_refs.iter(), hint)
+                                .with_context(|| format!("failed to restore sum '{}'", sum.name))?;
                         }
                     }
                 }
