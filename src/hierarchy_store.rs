@@ -261,6 +261,9 @@ impl HierarchyData {
                         }
                     }
 
+                    // the section's order travels with the records --
+                    // first appearance, dependencies first as written:
+                    hierarchy.order.push(name.clone());
                     hierarchy.segments.insert(
                         name.clone(),
                         StoredSegment {
@@ -289,6 +292,7 @@ impl HierarchyData {
                         }
                     }
 
+                    hierarchy.order.push(name.clone());
                     hierarchy.sums.insert(
                         name.clone(),
                         StoredSum {
