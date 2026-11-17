@@ -307,7 +307,7 @@ impl HierarchyData {
 
     pub fn store_to_branch(&self, repository: &Repository, branch_name: &str) -> Result<Oid> {
         Segment::check_name_is_valid(branch_name)?;
-        let serialized = self.serialize();
+        let serialized = self.serialize()?;
         let blob_oid = repository.blob(serialized.as_bytes())
             .context("failed to write hierarchy blob")?;
 
@@ -354,7 +354,7 @@ impl HierarchyData {
         message: &str,
     ) -> Result<Oid> {
         Segment::check_name_is_valid(tag_name)?;
-        let full_message = format!("{}\n\n{}", message, self.serialize());
+        let full_message = format!("{}\n\n{}", message, self.serialize()?);
         let sig = repository
             .signature()
             .or_else(|_| Signature::now("git-hierarchy", "git-hierarchy@local"))
@@ -410,7 +410,7 @@ impl HierarchyData {
     }
 
     pub fn store_to_file(&self, path: &Path) -> Result<()> {
-        let serialized = self.serialize();
+        let serialized = self.serialize()?;
         fs::write(path, serialized)
             .with_context(|| format!("failed to write hierarchy data to file {:?}", path))
     }
