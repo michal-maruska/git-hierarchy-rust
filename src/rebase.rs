@@ -753,7 +753,49 @@ pub fn check_sum<'repo>(
 mod tests {
     use super::*;
     use crate::test_utils::TestRepo;
+    use crate::graph::discover_pet::find_hierarchy;
     use std::fs;
+
+    #[test]
+    fn test_sum_state_not_merge() {
+        // the sum branch was moved ahead manually: its tip is not a
+        // merge commit anymore.  A known state, not an error -- but
+        // rebasing the hierarchy must stop on it.
+        let test_repo = TestRepo::new();
+        let _main = test_repo.create_initial_commit_on_main();
+        let seg1 = test_repo.generate_sample_segment("main", "seg1", "f1.txt");
+        let seg2 = test_repo.generate_sample_segment("main", "seg2", "f2.txt");
+        let c1 = seg1.reference.borrow().peel_to_commit().unwrap();
+        let c2 = seg2.reference.borrow().peel_to_commit().unwrap();
+        let merge = test_repo.create_commit("merge summands", &[&c1, &c2]);
+        let s1 = test_repo.repo.resolve_reference_from_short_name("seg1").unwrap();
+        let s2 = test_repo.repo.resolve_reference_from_short_name("seg2").unwrap();
+        let _sum1 = Sum::create(&test_repo.repo, "sum1", [&s1, &s2].into_iter(),
+                                Some(merge)).unwrap();
+
+        // move the sum branch ahead: a plain commit on top, so the
+        // tip is no longer a merge commit:
+        let sum_tip = test_repo.repo.resolve_reference_from_short_name("sum1").unwrap()
+            .peel_to_commit().unwrap();
+        let ahead = test_repo.create_commit("work on the sum branch", &[&sum_tip]).id();
+        test_repo.repo.reference("refs/heads/sum1", ahead, true, "moved ahead").unwrap();
+
+        let (graph, _order) = find_hierarchy(&test_repo.repo, "sum1".to_owned());
+        let object_map = &graph.labeled_objects;
+        let sum = match object_map.get("sum1") {
+            Some(GitHierarchy::Sum(sum)) => sum,
+            _ => panic!("expected the sum 'sum1' in the graph"),
+        };
+
+        assert_eq!(sum_state(&test_repo.repo, sum, object_map).unwrap(),
+                   SumState::NotMerge);
+
+        // the rebase path stops:
+        match check_sum(&test_repo.repo, sum, object_map) {
+            Err(RebaseError::NotMerge(name)) => assert_eq!(name, "sum1"),
+            other => panic!("expected NotMerge, got {:?}", other.err()),
+        }
+    }
 
     #[test]
     fn test_rebase_error_display_and_conversions() {
