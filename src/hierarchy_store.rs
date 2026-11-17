@@ -24,6 +24,21 @@ pub struct StoredSum {
 pub struct HierarchyData {
     pub segments: BTreeMap<String, StoredSegment>,
     pub sums: BTreeMap<String, StoredSum>,
+
+/// the line that opens the serialized section inside a longer text --
+/// a tag message carries the caller's text, then this marker, then
+/// the records to the end of the message:
+pub const STORE_SECTION_MARKER: &str = "# Git Hierarchy Store";
+
+/// The serialized section of a longer text: the records start at the
+/// marker line and run to the end; everything before it is the
+/// caller's own message.  `None` when the text carries no section.
+pub fn extract_section(text: &str) -> Option<&str> {
+    if text.starts_with(STORE_SECTION_MARKER) {
+        return Some(text);
+    }
+    text.find(&format!("\n{}", STORE_SECTION_MARKER))
+        .map(|offset| &text[offset + 1..])
 }
 
 /// Record extractors shared by the namespace sweep (collect) and the
