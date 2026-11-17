@@ -67,7 +67,7 @@ fn main() -> Result<()> {
     };
 
     if cli.stdout {
-        print!("{}", hierarchy.serialize());
+        print!("{}", hierarchy.serialize()?);
     } else if let Some(file_path) = cli.file {
         hierarchy.store_to_file(&file_path)
             .with_context(|| format!("failed to store hierarchy to file {:?}", file_path))?;
