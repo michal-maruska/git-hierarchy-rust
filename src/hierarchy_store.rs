@@ -559,8 +559,10 @@ mod tests {
                 summands: vec!["refs/heads/feature-1".to_string(), "refs/heads/feature-2".to_string()],
             },
         );
+        // the dependency-first order, as the writers guarantee it:
+        hierarchy.order = vec!["feature-1".to_string(), "sum-1".to_string()];
 
-        let serialized = hierarchy.serialize();
+        let serialized = hierarchy.serialize().unwrap();
         let deserialized = HierarchyData::deserialize(&serialized).unwrap();
 
         assert_eq!(hierarchy, deserialized);
@@ -596,14 +598,14 @@ mod tests {
         let _sum1 = Sum::create(&test_repo.repo, "sum1", [&s1, &s2].into_iter(), Some(merge_commit)).unwrap();
 
         let below_seg1 = HierarchyData::collect_below(&test_repo.repo, "seg1").unwrap();
-        let s = below_seg1.serialize();
+        let s = below_seg1.serialize().unwrap();
         assert!(s.contains("SEGMENT seg1 "));
         assert!(!s.contains("SEGMENT seg2 "));
         assert!(!s.contains("SEGMENT other "));
         assert!(!s.contains("SUM sum1 "));
 
         let below_sum1 = HierarchyData::collect_below(&test_repo.repo, "sum1").unwrap();
-        let s = below_sum1.serialize();
+        let s = below_sum1.serialize().unwrap();
         assert!(s.contains("SUM sum1 "));
         assert!(s.contains("SEGMENT seg1 "));
         assert!(s.contains("SEGMENT seg2 "));
@@ -626,8 +628,8 @@ mod tests {
         assert!(HierarchyData::collect(&test_repo.repo).is_err());
 
         let below = HierarchyData::collect_below(&test_repo.repo, "seg1").unwrap();
-        assert!(below.serialize().contains("SEGMENT seg1 "));
-        assert!(!below.serialize().contains("-bad"));
+        assert!(below.serialize().unwrap().contains("SEGMENT seg1 "));
+        assert!(!below.serialize().unwrap().contains("-bad"));
     }
 
     #[test]
@@ -657,6 +659,182 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_section() {
+        let section = format!("{}\nSEGMENT seg1 base=x start=y head=z\n", STORE_SECTION_MARKER);
+
+        // pure serialization -- as read from a branch or a file:
+        assert_eq!(extract_section(&section), Some(section.as_str()));
+        // the caller's text before the marker is discarded:
+        assert_eq!(extract_section(&format!("hello\n\n{}", section)),
+                   Some(section.as_str()));
+        // no marker, no section:
+        assert_eq!(extract_section("just a message"), None);
+    }
+
+    #[test]
+    fn test_load_from_tag_roundtrip() {
+        let test_repo = TestRepo::new();
+        let _main = test_repo.create_initial_commit_on_main();
+        let seg1 = test_repo.generate_sample_segment("main", "seg1", "f1.txt");
+        let seg2 = test_repo.generate_sample_segment("main", "seg2", "f2.txt");
+        let c1 = seg1.reference.borrow().peel_to_commit().unwrap();
+        let c2 = seg2.reference.borrow().peel_to_commit().unwrap();
+        let merge = create_commit(&test_repo.repo, "merge summands", &[&c1, &c2]);
+        let s1_ref = test_repo.repo.resolve_reference_from_short_name("seg1").unwrap();
+        let s2_ref = test_repo.repo.resolve_reference_from_short_name("seg2").unwrap();
+        let _sum1 = Sum::create(&test_repo.repo, "sum1", [&s1_ref, &s2_ref].into_iter(),
+                                Some(merge)).unwrap();
+        let data = HierarchyData::collect(&test_repo.repo).unwrap();
+
+        let commit = test_repo.create_commit("tag target", &[]);
+        let tag_oid = data
+            .store_to_tag(&test_repo.repo, "hier-1", &commit, "snapshot")
+            .unwrap();
+        let _ = tag_oid;
+
+        let loaded = HierarchyData::load_from_tag(&test_repo.repo, "hier-1").unwrap();
+        // the section's order travels with it:
+        assert_eq!(loaded, data);
+
+        // a plain annotated tag without the section:
+        let sig = test_repo.repo.signature().unwrap();
+        test_repo.repo.tag("plain", commit.as_object(), &sig, "hello", false).unwrap();
+        assert!(HierarchyData::load_from_tag(&test_repo.repo, "plain").is_err());
+
+        // a lightweight tag carries no message at all:
+        test_repo.repo.reference("refs/tags/lw", commit.id(), false, "lightweight").unwrap();
+        assert!(HierarchyData::load_from_tag(&test_repo.repo, "lw").is_err());
+    }
+
+    #[test]
+    fn test_serialize_in_dependency_first_order() {
+        // the record that is depended on comes first, regardless of
+        // the alphabetical order of the names:
+        let mut hierarchy = HierarchyData::default();
+        hierarchy.segments.insert(
+            "alpha".to_string(),
+            StoredSegment {
+                name: "alpha".to_string(),
+                base: "refs/heads/beta".to_string(),
+                start: "1111111111111111111111111111111111111111".to_string(),
+                head: "2222222222222222222222222222222222222222".to_string(),
+            },
+        );
+        hierarchy.segments.insert(
+            "beta".to_string(),
+            StoredSegment {
+                name: "beta".to_string(),
+                base: "refs/heads/main".to_string(),
+                start: "3333333333333333333333333333333333333333".to_string(),
+                head: "4444444444444444444444444444444444444444".to_string(),
+            },
+        );
+        // and a sum of sums: outer depends on inner depends on seg1:
+        hierarchy.sums.insert(
+            "inner".to_string(),
+            StoredSum {
+                name: "inner".to_string(),
+                head: "5555555555555555555555555555555555555555".to_string(),
+                summands: vec!["refs/heads/seg1".to_string()],
+            },
+        );
+        hierarchy.sums.insert(
+            "outer".to_string(),
+            StoredSum {
+                name: "outer".to_string(),
+                head: "6666666666666666666666666666666666666666".to_string(),
+                summands: vec!["refs/heads/inner".to_string()],
+            },
+        );
+        hierarchy.segments.insert(
+            "seg1".to_string(),
+            StoredSegment {
+                name: "seg1".to_string(),
+                base: "refs/heads/main".to_string(),
+                start: "7777777777777777777777777777777777777777".to_string(),
+                head: "8888888888888888888888888888888888888888".to_string(),
+            },
+        );
+        // the dependency-first order, as the writers guarantee it:
+        hierarchy.order = vec![
+            "beta".to_string(),
+            "seg1".to_string(),
+            "inner".to_string(),
+            "outer".to_string(),
+            "alpha".to_string(),
+        ];
+
+        let serialized = hierarchy.serialize().unwrap();
+        let beta_pos = serialized.find("SEGMENT beta ").unwrap();
+        let alpha_pos = serialized.find("SEGMENT alpha ").unwrap();
+        let seg1_pos = serialized.find("SEGMENT seg1 ").unwrap();
+        let inner_pos = serialized.find("SUM inner ").unwrap();
+        let outer_pos = serialized.find("SUM outer ").unwrap();
+        assert!(beta_pos < alpha_pos);
+        assert!(seg1_pos < inner_pos && inner_pos < outer_pos);
+
+        // the section's order travels with it, so the roundtrip holds:
+        assert_eq!(HierarchyData::deserialize(&serialized).unwrap(), hierarchy);
+
+        // an order that does not cover the record set is a bug to
+        // surface, not to repair silently:
+        hierarchy.order.pop();
+        assert!(hierarchy.serialize().is_err());
+    }
+
+    #[test]
+    fn test_restore_in_topological_order() {
+        // the repro of the alphabetical-order damage: 'alpha' bases on
+        // 'beta' yet sorts before it; restoring must create beta's
+        // branch first, or alpha is lost.
+        let test_repo = TestRepo::new();
+        let _main = test_repo.create_initial_commit_on_main();
+        let beta = test_repo.generate_sample_segment("main", "beta", "f1.txt");
+        let _alpha = test_repo.generate_sample_segment("beta", "alpha", "f2.txt");
+        let data = HierarchyData::collect(&test_repo.repo).unwrap();
+
+        beta.delete().unwrap();
+        // alpha's refs are dropped via the namespace (its heads branch):
+        let mut alpha_head = test_repo.repo.find_reference("refs/heads/alpha").unwrap();
+        alpha_head.delete().unwrap();
+        test_repo.repo.find_reference("refs/base/alpha").unwrap().delete().unwrap();
+        test_repo.repo.find_reference("refs/start/alpha").unwrap().delete().unwrap();
+        assert!(test_repo.repo.find_reference("refs/heads/alpha").is_err());
+
+        data.restore(&test_repo.repo, false).unwrap();
+
+        assert!(test_repo.repo.find_reference("refs/heads/beta").is_ok());
+        assert!(test_repo.repo.find_reference("refs/base/beta").is_ok());
+        assert!(test_repo.repo.find_reference("refs/heads/alpha").is_ok());
+        assert!(test_repo.repo.find_reference("refs/base/alpha").is_ok());
+    }
+
+    #[test]
+    fn test_collect_below_carries_the_discovery_order() {
+        // find_hierarchy yields the topology order, dependent-first;
+        // the records remember it reversed, dependencies first --
+        // derived from the graph, not from the names' alphabetical
+        // order:
+        let test_repo = TestRepo::new();
+        let _main = test_repo.create_initial_commit_on_main();
+        let _beta = test_repo.generate_sample_segment("main", "beta", "f1.txt");
+        let _alpha = test_repo.generate_sample_segment("beta", "alpha", "f2.txt");
+
+        let data = HierarchyData::collect_below(&test_repo.repo, "alpha").unwrap();
+        assert_eq!(data.order, vec!["beta".to_string(), "alpha".to_string()]);
+
+        // the whole-graph path carries the order too (find_whole_
+        // hierarchy + petgraph toposort, reversed):
+        let data = HierarchyData::collect(&test_repo.repo).unwrap();
+        assert_eq!(data.order, vec!["beta".to_string(), "alpha".to_string()]);
+
+        let serialized = data.serialize().unwrap();
+        let beta_pos = serialized.find("SEGMENT beta ").unwrap();
+        let alpha_pos = serialized.find("SEGMENT alpha ").unwrap();
+        assert!(beta_pos < alpha_pos);
+    }
+
+    #[test]
     fn test_collect_and_store_to_branch_and_restore() {
         let temp_repo = TestRepo::new();
         let repo = &temp_repo.repo;
@@ -681,6 +859,7 @@ mod tests {
         assert_ne!(commit_oid, Oid::zero());
 
         let loaded_hierarchy = HierarchyData::load_from_branch(repo, "_history").unwrap();
+        // the section's order travels with it:
         assert_eq!(hierarchy, loaded_hierarchy);
 
         let report = loaded_hierarchy.restore(repo, true).unwrap();
