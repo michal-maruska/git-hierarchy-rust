@@ -385,7 +385,12 @@ fn rebase_tree(
 ) -> Result<()> {
     debug!("find the hierarchy from {}", &root);
     tracing::debug_span!("hierarchy");
-    let (hierarchy_graph, discovery_order) = find_hierarchy(repository, root);
+    let (hierarchy_graph, mut discovery_order) = find_hierarchy(repository, root);
+    // rebasing the hierarchy goes dependencies-first: a segment
+    // before anything sitting on it, sums last (their summands must
+    // be rebased first).  find_hierarchy reports the discovery in the
+    // other direction, so flip it here, once, for all the loops.
+    discovery_order.reverse();
 
     // verify we can do it:
     debug!("Verify");
@@ -481,7 +486,9 @@ fn rebase_tree_dry(
     detect_conflicts: bool,
 ) -> Result<()> {
     debug!("find the hierarchy from {}", &root);
-    let (hierarchy_graph,discovery_order) = find_hierarchy(repository, root);
+    let (hierarchy_graph,mut discovery_order) = find_hierarchy(repository, root);
+    // same as rebase_tree: dependencies-first, flip once for all loops.
+    discovery_order.reverse();
 
     // The CLI lists arrive as reference spellings; the graph speaks the
     // unique bare name.  Canonicalize once, compare against the vertex
