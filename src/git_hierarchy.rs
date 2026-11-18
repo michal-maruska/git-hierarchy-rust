@@ -287,9 +287,9 @@ impl<'repo> Segment<'repo> {
                 .map(|s| s.to_string())
                 .ok_or_else(|| Error::from_str("base should be a symbolic reference"))?;
             let base_ref = repository.find_reference(&base_sym_target)?;
-            let oid = base_ref
-                .target()
-                .ok_or_else(|| Error::from_str("base reference target missing"))?;
+            // the base can be a tag: its reference points at the tag
+            // object, while the start must record the tagged commit.
+            let oid = base_ref.peel_to_commit()?.id();
             self.set_start(repository, oid, reflog_message)
         })();
 
@@ -1100,6 +1100,48 @@ mod tests {
         let head_reflog = repo.reflog("refs/heads/feature").unwrap();
         let latest_entry = head_reflog.get(0).unwrap();
         assert_eq!(latest_entry.message(), Some("custom_reflog_msg"));
+    }
+
+    #[test]
+    fn test_reset_start_peels_a_tag_base_to_the_commit() {
+        let test_repo = TestRepo::new();
+        let repo = &test_repo.repo;
+
+        let commit1 = create_commit(repo, "commit 1", &[]);
+        let commit2 = create_commit(repo, "commit 2", &[&commit1]);
+
+        let base_branch = repo.branch("main", &commit1, false).unwrap();
+        let _segment = Segment::create(
+            repo,
+            "feature",
+            base_branch.get(),
+            commit1.id(),
+            commit2.id(),
+        )
+        .unwrap();
+
+        // the base becomes an annotated tag: refs/tags/v1 points at
+        // the tag object, not at commit1.
+        let tagger = repo.signature().unwrap();
+        let tag_oid = repo
+            .tag("v1", commit1.as_object(), &tagger, "release", false)
+            .unwrap();
+        assert_ne!(tag_oid, commit1.id());
+        repo.reference_symbolic("refs/base/feature", "refs/tags/v1", true,
+                                "the base is a tag now").unwrap();
+
+        // reload, so the segment sees the re-pointed base reference.
+        let segment = match load(repo, "feature").unwrap() {
+            GitHierarchy::Segment(s) => s,
+            _ => panic!("expected the segment 'feature'"),
+        };
+
+        segment.reset(repo, commit2.id(), "rebased onto the tag").unwrap();
+        assert_eq!(
+            repo.find_reference("refs/start/feature").unwrap().target().unwrap(),
+            commit1.id(),
+            "the start must be the tagged commit, not the tag object"
+        );
     }
 
     #[test]
