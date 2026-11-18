@@ -733,3 +733,72 @@ fn test_cli_rebase_poset_dry_run_and_detect_conflicts() {
     let feature_ref2 = temp_repo.repo.find_reference("refs/heads/feature").unwrap();
     assert_eq!(feature_ref2.target().unwrap(), change1_commit.id());
 }
+
+#[test]
+fn test_cli_rebase_onto_replaced_tag_base_leaves_the_segment_clean() {
+    // segment S sits on the annotated tag T1; T2 is another annotated
+    // tag further along main.  Rebinding the hierarchy T1 -> T2 and
+    // rebasing S must leave it clean: its start is the COMMIT under
+    // T2, never the tag object itself.
+    let temp_repo = TestRepo::new();
+    let repo = &temp_repo.repo;
+
+    let c0 = temp_repo.create_initial_commit_on_main();
+    let sig = repo.signature().unwrap();
+    let t1_object = repo.tag("T1", c0.as_object(), &sig, "release 1", false).unwrap();
+    assert_ne!(t1_object, c0.id(), "T1 must be an annotated tag");
+
+    // main moves ahead first, while the index is still empty: T2's
+    // tree must not contain S's file, or replaying S's commit onto it
+    // would be empty.
+    let c2 = temp_repo.create_commit("main moves ahead", &[&c0]);
+    repo.reference("refs/heads/main", c2.id(), true, "main moves ahead").unwrap();
+    let t2_object = repo.tag("T2", c2.as_object(), &sig, "release 2", false).unwrap();
+    assert_ne!(t2_object, c2.id(), "T2 must be an annotated tag");
+
+    std::fs::write(temp_repo.path.join("s.txt"), "content of S").unwrap();
+    repo.index().unwrap().add_path(std::path::Path::new("s.txt")).unwrap();
+    let c1 = temp_repo.create_commit("work on S", &[&c0]);
+    // the content lives in c1's tree only -- a dirty worktree would
+    // block the rebase's checkouts.
+    std::fs::remove_file(temp_repo.path.join("s.txt")).unwrap();
+    let mut index = repo.index().unwrap();
+    index.remove_path(std::path::Path::new("s.txt")).unwrap();
+    index.write().unwrap();
+    repo.branch("S", &c1, false).unwrap();
+    repo.reference_symbolic("refs/base/S", "refs/tags/T1", false, "S is on T1").unwrap();
+    repo.reference("refs/start/S", c0.id(), false, "start of S").unwrap();
+
+    // rebind the hierarchy: base T1 -> T2
+    let walk = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
+        .arg("-g").arg(&temp_repo.path)
+        .arg("-r").arg("T1").arg("T2")
+        .arg("S")
+        .output()
+        .expect("failed to execute git-walk-down -r");
+    assert!(walk.status.success(), "Stderr: {}", String::from_utf8_lossy(&walk.stderr));
+
+    // rebase S onto the tag
+    let rebase = Command::new(env!("CARGO_BIN_EXE_git-rebase-poset"))
+        .arg("-g").arg(&temp_repo.path)
+        .arg("S")
+        .output()
+        .expect("failed to execute git-rebase-poset");
+    assert!(rebase.status.success(), "Stderr: {}", String::from_utf8_lossy(&rebase.stderr));
+
+    // the start is the commit under T2...
+    let start = repo.find_reference("refs/start/S").unwrap().target().unwrap();
+    let t2_commit = repo.find_reference("refs/tags/T2").unwrap()
+        .peel_to_commit().unwrap().id();
+    assert_eq!(start, t2_commit, "the start must be the tagged commit, not the tag object");
+
+    // ...which is exactly what "clean" means:
+    let describe = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
+        .arg("-g").arg(&temp_repo.path)
+        .arg("S")
+        .output()
+        .expect("failed to execute git-walk-down");
+    assert!(describe.status.success(), "Stderr: {}", String::from_utf8_lossy(&describe.stderr));
+    let stdout = String::from_utf8_lossy(&describe.stdout);
+    assert!(stdout.contains("up-to-date"), "the segment must be clean, got: {}", stdout);
+}
