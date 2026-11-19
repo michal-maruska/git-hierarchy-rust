@@ -130,7 +130,12 @@ fn define<'repo>(repository: &'repo Repository, args: &DefineArgs) -> Result<Seg
             .with_context(|| anyhow!("failed to resolve start commit '{}'", s))?
             .id()
     } else {
-        base.target().ok_or_else(|| anyhow!("base reference target missing"))?
+        // a tag base points at the tag object; the segment starts at
+        // the tagged commit.
+        base.peel_to_commit()
+            .with_context(|| format!("base reference '{}' does not resolve to a commit",
+                                     base.name().unwrap_or("??")))?
+            .id()
     };
 
     let head = if let Some(x) = &args.head {
