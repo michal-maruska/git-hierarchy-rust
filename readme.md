@@ -1,5 +1,8 @@
 ## Another reimplementation of git-hierarchy, in Rust
 
+New here? Read the [introduction](introduction.md): developing several features
+against a moving upstream, and simplifying as upstream adopts them.
+
 See
 - https://github.com/MichalMaruska/git-hierarchy
 - https://github.com/MichalMaruska/git-hierarchy-go
