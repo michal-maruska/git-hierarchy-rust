@@ -196,6 +196,7 @@ after deleting the local hierarchy entirely.
 | `git store-hierarchy` | serialize to tag (`-t`), branch (`-b`), file (`-f`), stdout |
 | `git restore-hierarchy` | restore from tag/branch/file/stdin; `-n` dry run |
 | `git rebase-segment <name>` | rebase a single segment |
+| `gitk-poset <name>` | invoke gitk to display commits in the hierarchy |
 
 All commands take `-g <dir>` to name the repository and are installed as
 `git-<name>` so they read naturally as `git <name>`.
