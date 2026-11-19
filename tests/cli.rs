@@ -802,3 +802,37 @@ fn test_cli_rebase_onto_replaced_tag_base_leaves_the_segment_clean() {
     let stdout = String::from_utf8_lossy(&describe.stdout);
     assert!(stdout.contains("up-to-date"), "the segment must be clean, got: {}", stdout);
 }
+
+#[test]
+fn test_cli_segment_created_on_a_tag_starts_at_the_tagged_commit() {
+    // a tag base points at the tag object; the new segment must start
+    // at the tagged commit, or it is never clean.
+    let temp_repo = TestRepo::new();
+    let repo = &temp_repo.repo;
+
+    let c0 = temp_repo.create_initial_commit_on_main();
+    let sig = repo.signature().unwrap();
+    let tag_object = repo.tag("T1", c0.as_object(), &sig, "release", false).unwrap();
+    assert_ne!(tag_object, c0.id(), "T1 must be an annotated tag");
+
+    let out = Command::new(env!("CARGO_BIN_EXE_git-segment"))
+        .arg("-g").arg(&temp_repo.path)
+        .arg("create").arg("S").arg("T1")
+        .output()
+        .expect("failed to execute git-segment create");
+    assert!(out.status.success(), "Stderr: {}", String::from_utf8_lossy(&out.stderr));
+
+    assert_eq!(repo.find_reference("refs/start/S").unwrap().target().unwrap(),
+               c0.id(), "the start must be the tagged commit");
+    assert_eq!(repo.find_reference("refs/heads/S").unwrap().target().unwrap(),
+               c0.id(), "the branch must sit on the tagged commit");
+
+    let walk = Command::new(env!("CARGO_BIN_EXE_git-walk-down"))
+        .arg("-g").arg(&temp_repo.path)
+        .arg("S")
+        .output()
+        .expect("failed to execute git-walk-down");
+    assert!(walk.status.success(), "Stderr: {}", String::from_utf8_lossy(&walk.stderr));
+    let stdout = String::from_utf8_lossy(&walk.stdout);
+    assert!(stdout.contains("up-to-date"), "the segment must be clean, got: {}", stdout);
+}
