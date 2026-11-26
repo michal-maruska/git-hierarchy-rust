@@ -1,3 +1,163 @@
+git-hierarchy (0.1.0-4) unstable; urgency=medium
+
+  [ Michal Maruska ]
+  * ci: try Jules as security agent
+  * jules version
+  * sum: don't panic while describing a sum, non-up-to-date
+  * git-segent/clap: allow global option (-v)
+  * git-segent: checkout new segment -- still fails
+  * git-segment: fix the checkout
+  * git_run: replace panicking with proper error propagation + test
+  * rebase: Prevent CLI options injection by adding '--' prior to names
+  * Propagate git2 error from name_is_valid using question mark operator
+  * Fix compiler warnings -- irrefutable let pattern in check_sum
+  * rebase: replace panic with proper error propagation.
+  * Fix compiler warnings
+  * github: upgrade checkout action
+  * refactor: propagate git_same_ref errors using question mark operator
+  * segment_to_continue: don't panic, report Result/Error
+  * test_cli_rebase_poset_corrupt_marker_file
+  * rebase/main:  segment_to_continue: report the error
+  * Best effor sums() and segments() -- avoid panic(), just ignore
+  * numbered_summands: avoid panic, best effor, skip
+  * Refactor `sums()`, `segments()`, and `Sum::numbered_summands` to return Result
+  * fix (rebase/main): correctly compare with resolved *ignore* set
+  * fix(remerge_sum): error on non-zero status
+  * start tests in rebase/main
+  * extract_remote_name: return Option+avoid panic. Adapt callers + test
+  * fix: fetch_upstream_of must compare the local branch with its upstream
+  * Add unit tests test_fetch_upstream_of_out_of_sync
+  * rebase_segment_continue: propagate errors, don't panic()
+  * git-rebase-segment: avoid panics: exit with error from main()
+  * sum: check the component-names while creating summands
+  * segment_to_continue: check the segment name
+  * debian: correct the Homepage
+  * doc(upstream_of): comment to explain
+  * Extend RebaseError to wrap git2 errors, io::error, marker-file, state
+  * segment::create if branch already exists, use it
+  * resolve_user_commit: move to base
+  * resolve_user_commit: return Commit, not Oid
+  * resolve_references_from_user: return Result
+  * resolve_references_from_user: check valid names
+  * main: expect all return Result
+  * extract resolve_to_commit_maybe() from define_sum() and return Result
+  * move resolve_to_commit_maybe to base, and use resolve_user_commit
+  * delete_sum: attempt deleting all summand references
+  * describe_sum: Propagate `load()` and reference resolution errors
+  * add/remove
+  * ssum: just "load"
+  * test resolve_references_from_user()
+  * git-sum/cli: test the validation.
+  * cli: new test: git_segment (restart) non-existent name
+  * git-segment: return git2::Result and use ? for error propagation
+  * check_name_is_valid  to return Error, so use ?
+  * resolve_reference_names_from_user
+  * rebase/main: avoid panic, return Error
+  * git-walk-down: stop using anyhow,
+  * move current_branch to base
+  * Add gitk-poset tool to invoke gitk on hierarchy tops and bases
+  * rebase: split match_summands_to_parents() out of check_summands()
+  * gitk-poset: handle the summands correctly
+  * Use anyhow::Result for error propagation in git-walk-down
+  * rebase: propagate errors cleanly instead of panicking
+  * Segment::create ignore if exists = return it
+  * Segment::create postpone base
+  * Segment::create verbose
+  * Segment::create realign --- bug!
+  * gitk: cannot check ref-names after having prefixed some with ^
+  * discover_pet: adopt dfs_discover_graph + client-side label maps; discovery doc
+  * update the discover-graph dependency and its documentation
+  * rebase: try to resolve the arguments, so resolved --ignore params apply
+  * Find the top nodes of the whole hierarchy graph
+  * update the submodule & the documentation: seed & bitset
+  * fix: when searching the whole graph, use full names of segments/sums
+  * test: test_whole_graph_unifies_bare_names
+  * doc: about the necessity
+  * git-walk-down: -f to find the tops
+  * Align all code working with the graph on the unique name
+  * doc: still improve #6 T in the graph vs &T
+  * update the submodule
+  * docs: clean up readme
+  * rebase: rename to flexible_match_commits_to_references()
+  * doc: reword to explain indices vs references
+  * fix bin/rebase: resolve dry-run correctly vertices to graph nodes
+  * fix gitk-poset: invoke with parameters expanded to avoid ambiguity
+  * find_hierarchy: reverse the discovery_order
+  * git-walk-down: format TAGs as well, blue
+  * git-walk-down: format remote branches as well, blue
+  * extrace summand_state(), sum_state(), out of check_summands
+  * git-sum: describe_sum() to provide the SumState
+  * git-walk-down: describe_node() to provide the SumState
+  * move "delete" methods from the git-segment/sum --delete
+  * git-walk-down: drop walk_down()
+  * git-walk-down: delete the hierarchy when called as delete-down
+  * discover_pet: comments
+  * git-delete-down: compile twice
+  * remove from Cargo; make symlink in the target directory with build.rs
+  * hierarchy-store: split common from collect(), add collect_below()
+  * git-store-hierarchy: invoke collect_below or collect()
+  * store: store into a annotated TAG
+  * hierarchy_store: keep a section delimited by marker
+  * read from the marked section, even git TAG message
+  * hierarchy_store: keep "order" ... the discovery order
+  * hierarchy_store: serialization can fail: don't write if failed
+  * git-store-hierarchy: adapt to serialize()
+  * restore: the order is guaranteed
+  * restore: when S exists already, update it
+  * git-restore-hierarchy: from tag, possibly just dump to stdout
+  * hierarchy_store: tests
+  * rebase/sum: NotMerge state & error
+  * rebase: add test for it
+  * git-walk, git-sum: adapt for that new state
+  * rebase: flip the order: descendant first -- rebase ancestor first
+  * integraton test: replace base tag, rebase, check
+  * segment::reset() fix: set the commit id, not tag id
+  * tests: 1 more for segments over tag
+  * fix: segment::define also peel to commit, not "target"
+  * docs: introduction
+  * doc: upgrade description to readme
+  * docs: mention gitk-hierarchy
+  * gitk: if only 1 top, use it
+
+  [ google-labs-jules[bot] ]
+  * security: Segment::name_is_valid to validate component names
+  * fix: handle errors during sum/segment creation
+  * report errors when listing segments and sums
+  * rebase: validate summand names in remerge_sum to prevent option injection
+  * security: validate reference names in load and handle load errors safely
+  * Move extract_remote_name to src/base.rs
+  * Extract common CLAP structures and helpers into cli module
+  * Validate reference names and handle errors in gitk-poset
+  * Use anyhow::Result and with_context for CLI error handling
+  * Use anyhow::Result in src/cli.rs, src/rebase.rs, git_hierarchy::load
+  * Return errors instead of calling exit in rebase library routines
+  * base: resolve_user_commit, resolve_to_commit_maybe return anyhow
+  * Fix test_resolve_user_commit_validation assertions in src/base.rs
+  * test: add  rebase continuation after conflict
+  * Return Result from set_start and Segment::reset
+  * Rename Segment _start field to start
+  * Pass reflog message to Segment::reset and set_start
+  * Ensure Segment::reset is atomic with head rollback and stderr output
+  * Reject reference path components with leading hyphens in Segment::name_is_valid
+  * gitk-poset: cannot pass '--' before reference arguments
+  * Validate cloned reference names in git-walk-down
+  * test: git-segment validate names, git-sum
+  * rename create_initial_commit to create_initial_commit_on_main
+  * Add git-store-hierarchy and git-restore-hierarchy binaries
+  * git-rebase-poset: verbose by default and add --quiet option
+  * add --dry and --detect-conflicts options to git-rebase-poset
+  * Reject reference path components with leading hyphens in Segment::name_is_valid
+  * test: reject components with leading hyphens in Segment::name_is_valid
+  * Validate reference names before executing gitk in gitk-poset
+  * Fix octopus merge command line in: --strategy recursive is redundant
+  * Validate sum name in remerge_sum() to prevent option injection
+  * Add test helpers create_segment and create_sample_sum
+
+  [ MichalMaruska ]
+  * Fix rebase continuation skipping commit on cherry-pick failure (#51)
+
+ -- Michal Maruska <mmaruska@gmail.com>  Thu, 26 Nov 2026 11:15:32 +0100
+
 git-hierarchy (0.1.0-3) unstable; urgency=medium
 
   [ google-labs-jules[bot] ]
