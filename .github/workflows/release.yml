@@ -1,6 +1,4 @@
 name: Publish Debian Package
-run-name: "Publish Debian Package — ${{ github.ref_name }}"
-
 on:
   push:
     tags:
@@ -21,6 +19,8 @@ on:
           - '["arm64"]'
           - '["amd64","arm64"]'
         default: '["amd64"]'
+
+run-name: Release ${{ inputs.ref || github.ref_name }} ${{ inputs.architectures }}
 
 permissions:
   contents: write
