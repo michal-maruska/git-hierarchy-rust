@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use git_hierarchy::graph::discover::NodeExpander;
+use git_hierarchy::graph::discover_pet::find_whole_hierarchy;
 
 use std::process::{Command, exit};
 
@@ -50,7 +51,14 @@ fn main() -> Result<()> {
         Some(r) => r,
         None => {
             let head = current_branch(&repository)
-                .ok_or_else(|| anyhow!("no current branch chosen"))?;
+                .map(Ok).unwrap_or_else(|| {
+                    let (_hierarchy_graph, tops) = find_whole_hierarchy(&repository);
+                    if tops.len() == 1 {
+                        Ok(tops.into_iter().next().unwrap())
+                    } else {
+                        Err(anyhow!("no current branch chosen"))
+                    }
+                })?;
             info!("Start from HEAD = {}", head);
             head
         }
