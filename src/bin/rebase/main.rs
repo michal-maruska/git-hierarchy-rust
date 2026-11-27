@@ -478,6 +478,140 @@ struct Cli {
     detect_conflicts: bool,
 }
 
+/// Simulate replaying a segment's commits onto `base_commit` with in-memory
+/// three-way tree merges, returning the simulated tip. No refs or HEAD are
+/// touched; temporary commits are only written as unreachable objects. On the
+/// first conflict the last clean tip is returned and `conflicts_found` is set.
+fn simulate_segment_rebase<'repo>(
+    repository: &'repo Repository,
+    segment: &Segment<'_>,
+    commits: &[Oid],
+    base_commit: Commit<'repo>,
+    conflicts_found: &mut bool,
+) -> Result<Commit<'repo>> {
+    let empty_tree = repository
+        .treebuilder(None)
+        .and_then(|b| b.write())
+        .and_then(|id| repository.find_tree(id))
+        .ok();
+    let mut current_commit = base_commit;
+
+    for oid in commits {
+        let commit_to_apply = repository.find_commit(*oid)?;
+        let ancestor_tree = if let Ok(parent_commit) = commit_to_apply.parent(0) {
+            parent_commit.tree().ok()
+        } else {
+            empty_tree.clone()
+        };
+        let ancestor_tree = ancestor_tree.as_ref().or(empty_tree.as_ref()).unwrap();
+        let our_tree = current_commit.tree()?;
+        let their_tree = commit_to_apply.tree()?;
+
+        let mut merge_opts = MergeOptions::new();
+        merge_opts.patience(true).ignore_whitespace(true);
+
+        let mut index =
+            repository.merge_trees(ancestor_tree, &our_tree, &their_tree, Some(&mut merge_opts))?;
+
+        if index.has_conflicts() {
+            let summary = commit_to_apply.summary().unwrap_or("");
+            println!(
+                "    [conflict] Segment '{}': conflict on commit {} (\"{}\")",
+                segment.name(),
+                &oid.to_string()[..7],
+                summary
+            );
+            *conflicts_found = true;
+            break;
+        }
+
+        let tree_oid = index.write_tree_to(repository)?;
+        let tree = repository.find_tree(tree_oid)?;
+        let sig = repository
+            .signature()
+            .unwrap_or_else(|_| git2::Signature::now("DryRun", "dry@run").unwrap());
+        let new_oid = repository.commit(
+            None,
+            &sig,
+            &sig,
+            commit_to_apply.message().unwrap_or(""),
+            &tree,
+            &[&current_commit],
+        )?;
+        current_commit = repository.find_commit(new_oid)?;
+    }
+
+    Ok(current_commit)
+}
+
+/// Simulate remerging a sum's summands with in-memory three-way tree merges,
+/// returning the simulated merge tip. No refs or HEAD are touched; temporary
+/// commits are only written as unreachable objects. On the first conflict the
+/// last clean tip is returned and `conflicts_found` is set.
+fn simulate_sum_merge<'repo>(
+    repository: &'repo Repository,
+    sum_name: &str,
+    summand_names: &[String],
+    summand_commits: &[Commit<'repo>],
+    conflicts_found: &mut bool,
+) -> Result<Commit<'repo>> {
+    let empty_tree = repository
+        .treebuilder(None)
+        .and_then(|b| b.write())
+        .and_then(|id| repository.find_tree(id))
+        .ok();
+    let mut first_commit = summand_commits[0].clone();
+
+    for (i, other_commit) in summand_commits.iter().enumerate().skip(1) {
+        let ancestor_oid = repository
+            .merge_base(first_commit.id(), other_commit.id())
+            .ok();
+        let ancestor_tree = ancestor_oid
+            .and_then(|oid| repository.find_commit(oid).ok())
+            .and_then(|c| c.tree().ok());
+        let ancestor_tree = ancestor_tree.as_ref().or(empty_tree.as_ref()).unwrap();
+        let our_tree = first_commit.tree()?;
+        let their_tree = other_commit.tree()?;
+
+        let mut merge_opts = MergeOptions::new();
+        merge_opts.patience(true).ignore_whitespace(true);
+
+        let mut index =
+            repository.merge_trees(ancestor_tree, &our_tree, &their_tree, Some(&mut merge_opts))?;
+
+        if index.has_conflicts() {
+            println!(
+                "    [conflict] Sum '{}': conflict merging summand '{}'",
+                sum_name, summand_names[i]
+            );
+            *conflicts_found = true;
+            break;
+        }
+
+        let tree_oid = index.write_tree_to(repository)?;
+        let tree = repository.find_tree(tree_oid)?;
+        let sig = repository
+            .signature()
+            .unwrap_or_else(|_| git2::Signature::now("DryRun", "dry@run").unwrap());
+        let msg = get_merge_commit_message(
+            sum_name,
+            &summand_names[0],
+            summand_names.iter().skip(1).map(|s| s.as_str()),
+        );
+        let new_oid = repository.commit(
+            None,
+            &sig,
+            &sig,
+            &msg,
+            &tree,
+            &[&first_commit, other_commit],
+        )?;
+        first_commit = repository.find_commit(new_oid)?;
+    }
+
+    Ok(first_commit)
+}
+
 fn rebase_tree_dry(
     repository: &Repository,
     root: String,
@@ -578,55 +712,13 @@ fn rebase_tree_dry(
 
                     let mut current_commit = base_commit;
                     if detect_conflicts {
-                        let empty_tree = repository.treebuilder(None).and_then(|b| b.write()).and_then(|id| repository.find_tree(id)).ok();
-                        for oid in &commits {
-                            let commit_to_apply = repository.find_commit(*oid)?;
-                            let ancestor_tree = if let Ok(parent_commit) = commit_to_apply.parent(0) {
-                                parent_commit.tree().ok()
-                            } else {
-                                empty_tree.clone()
-                            };
-                            let ancestor_tree = ancestor_tree.as_ref().or(empty_tree.as_ref()).unwrap();
-                            let our_tree = current_commit.tree()?;
-                            let their_tree = commit_to_apply.tree()?;
-
-                            let mut merge_opts = MergeOptions::new();
-                            merge_opts.patience(true).ignore_whitespace(true);
-
-                            let mut index = repository.merge_trees(
-                                ancestor_tree,
-                                &our_tree,
-                                &their_tree,
-                                Some(&mut merge_opts),
-                            )?;
-
-                            if index.has_conflicts() {
-                                let summary = commit_to_apply.summary().unwrap_or("");
-                                println!(
-                                    "    [conflict] Segment '{}': conflict on commit {} (\"{}\")",
-                                    segment.name(),
-                                    &oid.to_string()[..7],
-                                    summary
-                                );
-                                conflicts_found = true;
-                                break;
-                            } else {
-                                let tree_oid = index.write_tree_to(repository)?;
-                                let tree = repository.find_tree(tree_oid)?;
-                                let sig = repository.signature().unwrap_or_else(|_| {
-                                    git2::Signature::now("DryRun", "dry@run").unwrap()
-                                });
-                                let new_oid = repository.commit(
-                                    None,
-                                    &sig,
-                                    &sig,
-                                    commit_to_apply.message().unwrap_or(""),
-                                    &tree,
-                                    &[&current_commit],
-                                )?;
-                                current_commit = repository.find_commit(new_oid)?;
-                            }
-                        }
+                        current_commit = simulate_segment_rebase(
+                            repository,
+                            segment,
+                            &commits,
+                            current_commit,
+                            &mut conflicts_found,
+                        )?;
                     }
                     sim_tips.insert(v.clone(), current_commit);
                 }
@@ -679,60 +771,13 @@ fn rebase_tree_dry(
 
                     let mut current_merge = summand_commits.first().cloned();
                     if detect_conflicts && summand_commits.len() >= 2 {
-                        let empty_tree = repository.treebuilder(None).and_then(|b| b.write()).and_then(|id| repository.find_tree(id)).ok();
-                        let mut first_commit = summand_commits[0].clone();
-                        for (i, other_commit) in summand_commits.iter().enumerate().skip(1) {
-                            let ancestor_oid = repository
-                                .merge_base(first_commit.id(), other_commit.id())
-                                .ok();
-                            let ancestor_tree = ancestor_oid
-                                .and_then(|oid| repository.find_commit(oid).ok())
-                                .and_then(|c| c.tree().ok());
-                            let ancestor_tree = ancestor_tree.as_ref().or(empty_tree.as_ref()).unwrap();
-                            let our_tree = first_commit.tree()?;
-                            let their_tree = other_commit.tree()?;
-
-                            let mut merge_opts = MergeOptions::new();
-                            merge_opts.patience(true).ignore_whitespace(true);
-
-                            let mut index = repository.merge_trees(
-                                ancestor_tree,
-                                &our_tree,
-                                &their_tree,
-                                Some(&mut merge_opts),
-                            )?;
-
-                            if index.has_conflicts() {
-                                println!(
-                                    "    [conflict] Sum '{}': conflict merging summand '{}'",
-                                    sum.name(),
-                                    summand_names[i]
-                                );
-                                conflicts_found = true;
-                                break;
-                            } else {
-                                let tree_oid = index.write_tree_to(repository)?;
-                                let tree = repository.find_tree(tree_oid)?;
-                                let sig = repository.signature().unwrap_or_else(|_| {
-                                    git2::Signature::now("DryRun", "dry@run").unwrap()
-                                });
-                                let msg = get_merge_commit_message(
-                                    sum.name(),
-                                    &summand_names[0],
-                                    summand_names.iter().skip(1).map(|s| s.as_str()),
-                                );
-                                let new_oid = repository.commit(
-                                    None,
-                                    &sig,
-                                    &sig,
-                                    &msg,
-                                    &tree,
-                                    &[&first_commit, other_commit],
-                                )?;
-                                first_commit = repository.find_commit(new_oid)?;
-                            }
-                        }
-                        current_merge = Some(first_commit);
+                        current_merge = Some(simulate_sum_merge(
+                            repository,
+                            sum.name(),
+                            &summand_names,
+                            &summand_commits,
+                            &mut conflicts_found,
+                        )?);
                     }
 
                     if let Some(c) = current_merge {
