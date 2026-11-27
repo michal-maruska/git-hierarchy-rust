@@ -1,3 +1,13 @@
+git-hierarchy (0.2.1) unstable; urgency=medium
+
+  * ci: name the job with Architectures as well
+  * ci: stop using Jules
+  * cargo: gitk-poset
+  * d/install: install all binaries
+  * rebase: extrace from dry: simulate_segment_rebase,simulate_sum_merge
+
+ -- Michal Maruska <mmaruska@gmail.com>  Fri, 27 Nov 2026 13:10:57 +0100
+
 git-hierarchy (0.2.0) unstable; urgency=medium
 
   [ Michal Maruska ]
